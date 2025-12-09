@@ -8,6 +8,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 
 const PdfViewer = () => {
 
+
+
+
   // 1️⃣ State FIRST
   const [pdfSize, setPdfSize] = useState({ width: 0, height: 0 });
   const [fieldData, setFieldData] = useState({
@@ -71,7 +74,41 @@ const PdfViewer = () => {
   // 5️⃣ Important: Don't render overlay until pdfSize is set
   const pdfLoaded = pdfSize.width > 0 && pdfSize.height > 0;
 
-  return (
+  const handleSign = async () => {
+  if (!canvasRef.current) {
+    console.error("Canvas not ready yet");
+    return;
+  }
+
+  // 1️⃣ Get PDF image (temporary demo)
+  const canvas = canvasRef.current;
+  const pdfDataUrl = canvas.toDataURL("image/png");
+  const pdfBase64 = pdfDataUrl.split(",")[1];
+
+  // 2️⃣ TEMP signature (we will replace in Step 6)
+  const placeholderSig = pdfBase64; // using same image just for testing
+
+  // 3️⃣ Backend call
+  const response = await fetch("http://localhost:5000/sign-pdf", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      pdfBase64,
+      signatureBase64: placeholderSig,
+      coords: fieldData,
+    }),
+  });
+
+  const result = await response.json();
+  console.log("Backend returned:", result);
+};
+
+
+
+return (
+  <div style={{ textAlign: "center" }}>
+
+    {/* PDF Container */}
     <div
       style={{
         position: "relative",
@@ -104,7 +141,22 @@ const PdfViewer = () => {
         </div>
       )}
     </div>
-  );
+
+    {/* THE BUTTON SHOULD BE HERE */}
+    <button
+      onClick={handleSign}
+      style={{
+        marginTop: "20px",
+        padding: "10px 20px",
+        fontSize: "16px",
+        cursor: "pointer",
+      }}
+    >
+      Sign PDF (Test)
+    </button>
+  </div>
+);
+
 };
 
 export default PdfViewer;

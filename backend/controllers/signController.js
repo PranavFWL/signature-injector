@@ -4,6 +4,10 @@ exports.signPdf = async (req, res) => {
   try {
     const { pdfBase64, signatureBase64, coords } = req.body;
 
+    console.log("sign-pdf endpoint HIT");
+    console.log("Received coords:", coords);
+
+
     const { leftPct, topPct, widthPct, heightPct } = coords;
 
     const pdfBytes = Buffer.from(pdfBase64, "base64");
