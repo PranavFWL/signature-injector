@@ -1,7 +1,11 @@
 import React from "react";
 import { Rnd } from "react-rnd";
 
-const FieldOverlay = ({ canvasWidth, canvasHeight }) => {
+const FieldOverlay = ({ onChangePosition, pdfWidth, pdfHeight }) => {
+
+  // Avoid division by zero
+  if (pdfWidth === 0 || pdfHeight === 0) return null;
+
   return (
     <Rnd
       default={{
@@ -11,10 +15,33 @@ const FieldOverlay = ({ canvasWidth, canvasHeight }) => {
         height: 60,
       }}
       bounds="parent"
+      onDragStop={(e, d) => {
+        const leftPct = d.x / pdfWidth;
+        const topPct = d.y / pdfHeight;
+        onChangePosition({ leftPct, topPct });
+      }}
+      onResizeStop={(e, direction, ref, delta, position) => {
+        const widthPx = ref.offsetWidth;
+        const heightPx = ref.offsetHeight;
+
+        const widthPct = widthPx / pdfWidth;
+        const heightPct = heightPx / pdfHeight;
+
+        const leftPct = position.x / pdfWidth;
+        const topPct = position.y / pdfHeight;
+
+        onChangePosition({
+          leftPct,
+          topPct,
+          widthPct,
+          heightPct,
+        });
+      }}
       style={{
         border: "2px solid #007bff",
         backgroundColor: "rgba(0, 123, 255, 0.1)",
         borderRadius: "4px",
+        cursor: "move",
       }}
     >
       <div style={{ padding: "5px", fontSize: "14px" }}>Signature Box</div>

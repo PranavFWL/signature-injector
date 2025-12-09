@@ -2,24 +2,39 @@ import React, { useEffect, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist/webpack";
 import FieldOverlay from "./FieldOverlay";
 
-// PDF worker setup
+// PDF worker
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 const PdfViewer = () => {
-  const canvasRef = useRef(null);
-  const [pdfSize, setPdfSize] = useState({ width: 0, height: 0 });
 
+  // 1️⃣ State FIRST
+  const [pdfSize, setPdfSize] = useState({ width: 0, height: 0 });
+  const [fieldData, setFieldData] = useState({
+    leftPct: 0,
+    topPct: 0,
+    widthPct: 0,
+    heightPct: 0,
+  });
+
+  // 2️⃣ Handler SECOND
+  const handleFieldPositionChange = (data) => {
+    setFieldData((prev) => ({ ...prev, ...data }));
+    console.log("Updated field data:", { ...fieldData, ...data });
+  };
+
+  // 3️⃣ Refs THIRD
+  const canvasRef = useRef(null);
+
+  // 4️⃣ useEffect FOURTH
   useEffect(() => {
     const loadPdf = async () => {
       const loadingTask = pdfjsLib.getDocument("/sample.pdf");
       const pdf = await loadingTask.promise;
       const page = await pdf.getPage(1);
 
-      // FIX: correct rotation
       const rotation = page.rotation || 0;
 
-      // FIX: choose scale
       const viewport = page.getViewport({
         scale: 1.5,
         rotation: rotation,
@@ -28,7 +43,6 @@ const PdfViewer = () => {
       const canvas = canvasRef.current;
       const context = canvas.getContext("2d");
 
-      // FIX: High DPI clarity
       const dpr = window.devicePixelRatio || 1;
 
       canvas.width = viewport.width * dpr;
@@ -39,22 +53,23 @@ const PdfViewer = () => {
 
       context.scale(dpr, dpr);
 
-      // Save PDF size for overlay
       setPdfSize({
         width: viewport.width,
         height: viewport.height,
       });
 
-      const renderContext = {
+      await page.render({
         canvasContext: context,
         viewport: viewport,
-      };
-
-      await page.render(renderContext).promise;
+      }).promise;
     };
 
     loadPdf();
   }, []);
+
+  
+  // 5️⃣ Important: Don't render overlay until pdfSize is set
+  const pdfLoaded = pdfSize.width > 0 && pdfSize.height > 0;
 
   return (
     <div
@@ -66,25 +81,28 @@ const PdfViewer = () => {
         border: "1px solid #ddd",
       }}
     >
-      {/* Canvas */}
       <canvas ref={canvasRef} />
 
-      {/* Overlay (must match EXACT canvas size) */}
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: pdfSize.width,
-          height: pdfSize.height,
-          pointerEvents: "none", // Do not block canvas
-        }}
-      >
-        {/* Only this div accepts pointer events */}
-        <div style={{ pointerEvents: "auto", width: "100%", height: "100%" }}>
-          <FieldOverlay />
+      {pdfLoaded && (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: pdfSize.width,
+            height: pdfSize.height,
+            pointerEvents: "none",
+          }}
+        >
+          <div style={{ pointerEvents: "auto", width: "100%", height: "100%" }}>
+            <FieldOverlay
+              onChangePosition={handleFieldPositionChange}
+              pdfWidth={pdfSize.width}
+              pdfHeight={pdfSize.height}
+            />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
