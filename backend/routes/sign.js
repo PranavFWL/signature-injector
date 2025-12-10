@@ -1,330 +1,282 @@
 // backend/routes/sign.js
 const express = require("express");
 const router = express.Router();
-const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
+const { PDFDocument, StandardFonts } = require("pdf-lib");
 const crypto = require("crypto");
 
 /**
- * Expected payload:
- * {
- *   pdfId: "<gridfs id string>",
- *   fields: [
- *     {
- *       id, type, pageIndex, leftPct, topPct, widthPct, heightPct, value
- *     },
- *     ...
- *   ]
- * }
- *
- * Behavior:
- * - Reads original PDF from GridFS
- * - Computes SHA-256 of original PDF
- * - Applies all fields to PDF:
- *     text/date -> draw text inside box
- *     signature/image -> embed image aspect-fit and center inside box
- *     radio -> draw circle, fill if value truthy, and draw editable label on right
- * - Computes SHA-256 of signed PDF
- * - Saves signed PDF to GridFS
- * - Writes audit record to MongoDB collection `audit_trail`
- * - Returns { signedPdfId, url } where url is a download endpoint on this server
- */
-
-function bufferFromStream(stream) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    stream.on("data", (c) => chunks.push(c));
-    stream.on("error", (err) => reject(err));
-    stream.on("end", () => resolve(Buffer.concat(chunks)));
-  });
-}
-
-function sha256Hex(buffer) {
-  return crypto.createHash("sha256").update(buffer).digest("hex");
-}
-
-// aspect-fit calculation: returns { drawWidth, drawHeight, offsetX, offsetY }
-function fitInsideBox(boxW, boxH, imgW, imgH) {
-  const boxRatio = boxW / boxH;
-  const imgRatio = imgW / imgH;
-
-  let drawW, drawH;
-  if (imgRatio > boxRatio) {
-    // image wider: fit by width
-    drawW = boxW;
-    drawH = boxW / imgRatio;
-  } else {
-    // image taller or equal: fit by height
-    drawH = boxH;
-    drawW = boxH * imgRatio;
-  }
-  const offsetX = (boxW - drawW) / 2;
-  const offsetY = (boxH - drawH) / 2;
-  return { drawWidth: drawW, drawHeight: drawH, offsetX, offsetY };
-}
-
+ Expected POST /sign-pdf payload:
+ {
+   pdfId: "<GridFS ObjectId string of original PDF>",
+   fields: [
+     {
+       id: "abc",
+       type: "signature" | "image" | "text" | "date" | "radio",
+       pageIndex: 0,
+       leftPct: 0.42,
+       topPct: 0.54,
+       widthPct: 0.2239,
+       heightPct: 0.0633,
+       value: "<base64 image for signature/image OR text value>" 
+     },
+     ...
+   ]
+ }
+*/
 router.post("/sign-pdf", async (req, res) => {
   try {
-    console.log("SIGN REQUEST RECEIVED:", JSON.stringify(req.body).slice(0, 1000));
-
-    const db = req.db; // mongo db instance
-    const gfs = req.gfs; // GridFSBucket instance
-    const ObjectId = req.ObjectId;
+    console.log("SIGN REQUEST RECEIVED:", req.body);
 
     const { pdfId, fields } = req.body;
-
-    if (!pdfId || !fields || !Array.isArray(fields)) {
-      return res.status(400).json({ error: "Missing pdfId or fields array" });
+    if (!pdfId || !Array.isArray(fields)) {
+      return res.status(400).json({ error: "Missing pdfId or fields[]" });
     }
 
-    // 1) Read original PDF bytes from GridFS
-    let downloadStream;
-    try {
-      downloadStream = gfs.openDownloadStream(new ObjectId(pdfId));
-    } catch (err) {
-      console.error("Invalid pdfId:", err);
-      return res.status(400).json({ error: "Invalid pdfId" });
-    }
+    const db = req.db;           // injected in server.js middleware
+    const gfs = req.gfs;         // injected GridFSBucket instance
+    const ObjectId = req.ObjectId;
 
-    let originalPdfBuffer;
-    try {
-      originalPdfBuffer = await bufferFromStream(downloadStream);
-    } catch (err) {
+    // -------------- 1) Read original PDF from GridFS ----------------
+    const downloadStream = gfs.openDownloadStream(new ObjectId(pdfId));
+    let chunks = [];
+    downloadStream.on("data", (c) => chunks.push(c));
+    downloadStream.on("error", (err) => {
       console.error("GridFS read error:", err);
       return res.status(500).json({ error: "Failed to read PDF from GridFS" });
-    }
+    });
 
-    // 2) Compute hash BEFORE signing
-    const originalHash = sha256Hex(originalPdfBuffer);
-
-    // 3) Load PDF document
-    const pdfDoc = await PDFDocument.load(originalPdfBuffer);
-    const pages = pdfDoc.getPages();
-
-    // Load fonts we'll use
-    const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-
-    // For every page caching of its size
-    const pageSizes = pages.map((p) => p.getSize());
-
-    // 4) Process each field
-    // fields: [{ id, type, pageIndex, leftPct, topPct, widthPct, heightPct, value }]
-    for (const f of fields) {
+    downloadStream.on("end", async () => {
       try {
-        // Validate page index
-        const pi = Number(f.pageIndex || 0);
-        if (isNaN(pi) || pi < 0 || pi >= pages.length) {
-          console.warn("Skipping field with bad pageIndex:", f);
-          continue;
-        }
-        const page = pages[pi];
-        const { width: pageW, height: pageH } = pageSizes[pi];
+        const pdfBuffer = Buffer.concat(chunks);
 
-        // Convert % to PDF points:
-        // frontend leftPct/topPct/widthPct/heightPct are relative to page CSS width/height (top-left origin).
-        // PDF coordinate origin is bottom-left. So:
-        //   x = pageW * leftPct
-        //   y_top = pageH * topPct
-        //   y = pageH - (y_top + boxHeight)
-        const leftPct = Number(f.leftPct || 0);
-        const topPct = Number(f.topPct || 0);
-        const widthPct = Number(f.widthPct || 0);
-        const heightPct = Number(f.heightPct || 0);
+        // -------------- 2) Compute original SHA-256 ------------------
+        const originalHash = crypto.createHash("sha256").update(pdfBuffer).digest("hex");
 
-        const boxW = pageW * widthPct;
-        const boxH = pageH * heightPct;
-        const boxX = pageW * leftPct;
-        const boxYTop = pageH * topPct;
-        const boxY = pageH - (boxYTop + boxH); // bottom-left origin
+        // -------------- 3) Load into pdf-lib ------------------------
+        const pdfDoc = await PDFDocument.load(pdfBuffer);
 
-        const padding = Math.max(2, boxH * 0.08); // small padding inside box
+        // embed a standard font for text rendering
+        const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-        // Branch by field type
-        if (f.type === "signature" || f.type === "image") {
-          // value should be base64 (without data: prefix)
-          const base64 = f.value || "";
-          if (!base64) {
-            console.warn(`Field ${f.id} has no image data; skipping.`);
-            continue;
-          }
+        const pages = pdfDoc.getPages();
 
-          // detect PNG vs JPEG by header bytes (first few base64 chars)
-          const imgBytes = Uint8Array.from(Buffer.from(base64, "base64"));
-
-          // embed image (pdf-lib determines format)
-          let embeddedImage;
+        // -------------- 4) Process fields ---------------------------
+        for (const f of fields) {
           try {
-            // Attempt embedPng first, fallback to embedJpg
-            // pdf-lib will throw if format doesn't match, so try both
-            try {
-              embeddedImage = await pdfDoc.embedPng(imgBytes);
-            } catch (e) {
-              embeddedImage = await pdfDoc.embedJpg(imgBytes);
-            }
-          } catch (err) {
-            console.error("Failed to embed image for field", f.id, err);
-            continue;
-          }
+            // safety checks
+            if (!f || typeof f.pageIndex !== "number") continue;
+            if (f.pageIndex < 0 || f.pageIndex >= pages.length) continue;
 
-          const imgDims = { width: embeddedImage.width, height: embeddedImage.height };
-          const fit = fitInsideBox(boxW - 2 * padding, boxH - 2 * padding, imgDims.width, imgDims.height);
+            const page = pages[f.pageIndex];
+            const { width: pageWidth, height: pageHeight } = page.getSize();
 
-          const drawX = boxX + padding + fit.offsetX;
-          const drawY = boxY + padding + fit.offsetY;
-          const drawW = fit.drawWidth;
-          const drawH = fit.drawHeight;
+            // absolute box on PDF points
+            const fieldW = pageWidth * (f.widthPct || 0);
+            const fieldH = pageHeight * (f.heightPct || 0);
+            const fieldLeft = pageWidth * (f.leftPct || 0);
+            const fieldTop = pageHeight * (f.topPct || 0); // top in CSS coords
 
-          page.drawImage(embeddedImage, {
-            x: drawX,
-            y: drawY,
-            width: drawW,
-            height: drawH,
-          });
-        } else if (f.type === "text" || f.type === "date") {
-          // Render value inside box, wrap simply, auto font-size
-          const value = f.value ?? "";
-          // choose a font size relative to box height; clamp
-          let fontSize = Math.min(24, Math.max(8, Math.floor((boxH - 2 * padding) * 0.6)));
-          // If text is long, reduce font size
-          const approxCharsPerLine = Math.max(10, Math.floor((boxW - 2 * padding) / (fontSize * 0.5)));
-          const lines = [];
-          if (!value) {
-            // placeholder faint text for empty text boxes
-            page.drawText("", { x: boxX + padding, y: boxY + boxH - padding - fontSize, size: fontSize, font: helveticaFont, color: rgb(0, 0, 0) });
-          } else {
-            // naive wrap: split by space
-            const words = String(value).split(/\s+/);
-            let line = "";
-            for (const w of words) {
-              if ((line + " " + w).trim().length <= approxCharsPerLine) {
-                line = (line + " " + w).trim();
-              } else {
-                lines.push(line);
-                line = w;
+            // convert top-left (CSS) into PDF bottom-left origin
+            const fieldBottomY = pageHeight - (fieldTop + fieldH);
+
+            // --- IMAGE or SIGNATURE (contain, preserve aspect) ---
+            if (f.type === "signature" || f.type === "image") {
+              if (!f.value) {
+                console.warn("field missing value (image):", f.id);
+                continue;
               }
-            }
-            if (line) lines.push(line);
 
-            // if too many lines, reduce font-size
-            while (lines.length * fontSize > (boxH - 2 * padding) && fontSize > 6) {
-              fontSize -= 1;
-            }
+              // accept either "data:<mime>;base64,..." or raw base64
+              let base64 = f.value;
+              const commaIdx = base64.indexOf(",");
+              if (commaIdx !== -1) base64 = base64.slice(commaIdx + 1);
 
-            // draw lines from top inside box
-            let curY = boxY + boxH - padding - fontSize;
-            for (const ln of lines) {
-              page.drawText(ln, {
-                x: boxX + padding,
-                y: curY,
+              const imgBytes = Uint8Array.from(Buffer.from(base64, "base64"));
+
+              // try embed PNG then JPG
+              let embeddedImage;
+              try {
+                embeddedImage = await pdfDoc.embedPng(imgBytes);
+              } catch (e) {
+                embeddedImage = await pdfDoc.embedJpg(imgBytes);
+              }
+
+              const imgW = embeddedImage.width;
+              const imgH = embeddedImage.height;
+
+              const scale = Math.min(fieldW / imgW, fieldH / imgH);
+              const drawW = imgW * scale;
+              const drawH = imgH * scale;
+              const drawX = fieldLeft + (fieldW - drawW) / 2;
+              const drawY = fieldBottomY + (fieldH - drawH) / 2;
+
+              page.drawImage(embeddedImage, {
+                x: drawX,
+                y: drawY,
+                width: drawW,
+                height: drawH,
+              });
+
+              console.log(`Drew ${f.type} '${f.id}' on page ${f.pageIndex} at`, {
+                drawX, drawY, drawW, drawH,
+              });
+
+            // --- TEXT ---
+            } else if (f.type === "text") {
+              const text = (typeof f.value === "string" ? f.value : "") || "";
+
+              // start with a max font size that's reasonable relative to the box height
+              const maxFontSize = Math.min(24, fieldH * 0.8); // never huge
+              let fontSize = maxFontSize;
+
+              // measure and shrink fontSize until it fits horizontally (simple loop)
+              let textWidth = helveticaFont.widthOfTextAtSize(text, fontSize);
+              if (textWidth > fieldW - 6) { // small padding
+                // reduce font until it fits, but don't go below 6
+                while (fontSize > 6 && helveticaFont.widthOfTextAtSize(text, fontSize) > fieldW - 6) {
+                  fontSize -= 1;
+                }
+                textWidth = helveticaFont.widthOfTextAtSize(text, fontSize);
+              }
+
+              // vertical centering
+              const textHeight = fontSize; // approx
+              const drawX = fieldLeft + (fieldW - textWidth) / 2;
+              const drawY = fieldBottomY + (fieldH - textHeight) / 2;
+
+              page.drawText(text, {
+                x: drawX,
+                y: drawY,
                 size: fontSize,
                 font: helveticaFont,
-                color: rgb(0, 0, 0),
-                maxWidth: boxW - 2 * padding,
+                maxWidth: fieldW - 6,
               });
-              curY -= fontSize + 2;
+
+              console.log(`Drew text '${f.id}' on page ${f.pageIndex} at`, {
+                drawX, drawY, fontSize, textWidth,
+              });
+
+            // --- DATE ---
+            } else if (f.type === "date") {
+              let dateStr = "";
+              if (f.value && typeof f.value === "string" && f.value.trim() !== "") {
+                dateStr = f.value;
+              } else {
+                // default format YYYY-MM-DD
+                const d = new Date();
+                const yyyy = d.getFullYear();
+                const mm = String(d.getMonth() + 1).padStart(2, "0");
+                const dd = String(d.getDate()).padStart(2, "0");
+                dateStr = `${yyyy}-${mm}-${dd}`;
+              }
+
+              const maxFontSize = Math.min(18, fieldH * 0.7);
+              let fontSize = maxFontSize;
+              let textWidth = helveticaFont.widthOfTextAtSize(dateStr, fontSize);
+              while (fontSize > 6 && textWidth > fieldW - 6) {
+                fontSize -= 1;
+                textWidth = helveticaFont.widthOfTextAtSize(dateStr, fontSize);
+              }
+
+              const textHeight = fontSize;
+              const drawX = fieldLeft + 4; // left aligned with small padding
+              const drawY = fieldBottomY + (fieldH - textHeight) / 2;
+
+              page.drawText(dateStr, {
+                x: drawX,
+                y: drawY,
+                size: fontSize,
+                font: helveticaFont,
+                maxWidth: fieldW - 6,
+              });
+
+              console.log(`Drew date '${f.id}' on page ${f.pageIndex} at`, { drawX, drawY, fontSize });
+
+            // --- RADIO ---
+            } else if (f.type === "radio") {
+              // Draw a circle centered in the field box. If f.value is truthy, fill a smaller dot.
+              const cx = fieldLeft + fieldW / 2;
+              const cy = fieldBottomY + fieldH / 2;
+              const outerR = Math.min(fieldW, fieldH) * 0.4; // radius relative to box
+              const innerR = outerR * 0.55;
+
+              // pdf-lib doesn't have direct circle primitive; use drawEllipse
+              page.drawEllipse({
+                x: cx,
+                y: cy,
+                xScale: outerR,
+                yScale: outerR,
+                borderWidth: 1,
+              });
+
+              // if value indicates checked (truthy string "checked" or boolean true)
+              if (f.value) {
+                page.drawEllipse({
+                  x: cx,
+                  y: cy,
+                  xScale: innerR,
+                  yScale: innerR,
+                  color: undefined, // use default (black) fill
+                  borderWidth: 0,
+                  opacity: 1,
+                });
+              }
+
+              console.log(`Drew radio '${f.id}' on page ${f.pageIndex} at`, { cx, cy, outerR, innerR });
+
+            } else {
+              console.log("Unknown field.type (skipping):", f.type, f.id);
             }
+          } catch (innerErr) {
+            console.error("Error processing single field:", f && f.id, innerErr);
           }
-        } else if (f.type === "radio") {
-          // Draw a radio circle and a label text to the right (editable). Only one radio per drag (frontend constraint).
-          const isChecked = !!f.value; // truthy means selected
-          const label = f.label ?? f.value ?? ""; // allow a label field; frontend can send label
-          // circle radius relative to box height
-          const radius = Math.max(6, Math.min(boxH * 0.18, 12));
-          const centerX = boxX + padding + radius;
-          const centerY = boxY + boxH / 2;
+        } // end for fields
 
-          // circle stroke
-          page.drawCircle({
-            x: centerX,
-            y: centerY,
-            size: radius,
-            borderColor: rgb(0, 0, 0),
-            borderWidth: 1,
-            color: undefined,
-          });
+        // -------------- 5) Save signed PDF -------------------------
+        const signedPdfBytes = await pdfDoc.save();
 
-          // filled inner dot if selected
-          if (isChecked) {
-            page.drawCircle({
-              x: centerX,
-              y: centerY,
-              size: radius * 0.5,
-              color: rgb(0, 0, 0),
-            });
+        // -------------- 6) Save to GridFS -------------------------
+        const uploadStream = gfs.openUploadStream("signed_" + pdfId + ".pdf");
+        uploadStream.end(signedPdfBytes);
+
+        uploadStream.on("error", (err) => {
+          console.error("GridFS upload error:", err);
+          return res.status(500).json({ error: "Failed to write signed PDF to GridFS" });
+        });
+
+        uploadStream.on("finish", async () => {
+          const signedPdfId = uploadStream.id;
+
+          // -------------- 7) Compute final SHA-256 ----------------
+          const finalHash = crypto.createHash("sha256").update(Buffer.from(signedPdfBytes)).digest("hex");
+
+          // -------------- 8) Insert audit record -------------------
+          try {
+            const audit = {
+              pdfId: new ObjectId(pdfId),
+              signedPdfId,
+              originalHash,
+              finalHash,
+              fieldsProcessed: fields.map((ff) => ({ id: ff.id, type: ff.type, pageIndex: ff.pageIndex })),
+              createdAt: new Date(),
+            };
+            await db.collection("audits").insertOne(audit);
+          } catch (auditErr) {
+            console.error("Failed to write audit record:", auditErr);
           }
 
-          // draw label text to right
-          if (label) {
-            const fontSize = Math.max(8, Math.min(14, Math.floor(boxH * 0.28)));
-            page.drawText(String(label), {
-              x: centerX + radius + 6,
-              y: centerY - fontSize / 2,
-              size: fontSize,
-              font: helveticaFont,
-              color: rgb(0, 0, 0),
-              maxWidth: boxW - (radius * 3 + 12),
-            });
-          }
-        } else {
-          console.warn("Unknown field type; skipping:", f.type);
-        }
-      } catch (errField) {
-        console.error("Error processing field", f, errField);
+          // -------------- 9) Respond with signed PDF id + URL -----------
+          const signedUrl = `/file/${signedPdfId}`; // ensure your server has this route
+          console.log("Signed PDF saved with ID:", signedPdfId.toString());
+          return res.json({ signedPdfId: signedPdfId.toString(), url: signedUrl });
+        });
+
+      } catch (err) {
+        console.error("sign-pdf processing error:", err);
+        return res.status(500).json({ error: "PDF processing failed" });
       }
-    } // end fields loop
+    }); // end downloadStream.on('end')
 
-    // 5) Save output PDF bytes
-    const signedPdfBytes = await pdfDoc.save();
-
-    // 6) Compute hash AFTER signing
-    const signedHash = sha256Hex(Buffer.from(signedPdfBytes));
-
-    // 7) Save signed PDF to GridFS
-    const uploadName = `signed_${pdfId}.pdf`;
-    const uploadStream = gfs.openUploadStream(uploadName);
-    uploadStream.end(Buffer.from(signedPdfBytes));
-
-    // Wait for finish
-    await new Promise((resolve, reject) => {
-      uploadStream.on("finish", resolve);
-      uploadStream.on("error", reject);
-    });
-
-    const signedPdfId = uploadStream.id;
-
-    // 8) Persist audit trail in MongoDB
-    try {
-      const audit = {
-        originalPdfId: new ObjectId(pdfId),
-        signedPdfId: signedPdfId,
-        originalHash,
-        signedHash,
-        timestamp: new Date(),
-        fields,
-      };
-      // Use collection name 'audit_trail'
-      await db.collection("audit_trail").insertOne(audit);
-    } catch (errAudit) {
-      console.error("Failed to write audit trail:", errAudit);
-      // don't fail the whole request; continue
-    }
-
-    // 9) Build a download URL for the signed PDF (assumes you have a route to serve GridFS files)
-    // We'll try to build it from request host info. Adjust if your server uses a different download route.
-    const protocol = req.protocol || "http";
-    const host = req.get("host");
-    // Example download path: /api/files/:id  -- adjust to your actual file-serving route if different
-    const downloadUrl = `${protocol}://${host}/files/${signedPdfId}`;
-
-    console.log("Signed PDF saved with ID:", signedPdfId);
-
-    return res.json({
-      signedPdfId,
-      url: downloadUrl,
-      pdf: Buffer.from(signedPdfBytes).toString("base64"), // still include base64 for front-end immediate download
-      originalHash,
-      signedHash,
-    });
   } catch (err) {
     console.error("sign-pdf error:", err);
     return res.status(500).json({ error: "Unexpected server error" });

@@ -153,33 +153,45 @@ export default function PdfViewer() {
 
   // Sign & download: sends `pdfId` + `fields` to backend sign endpoint
   const handleSign = async () => {
-    if (!pdfId) return alert("Upload PDF to server first.");
-    console.log("signing payload fields:", fields);
+  if (!pdfId) return alert("Upload PDF first");
 
-    try {
-      const res = await fetch("http://localhost:5000/sign-pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pdfId, fields }),
-      });
+  try {
+    const res = await fetch("http://localhost:5000/sign-pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pdfId, fields }),
+    });
 
-      const data = await res.json();
-      console.log("sign response:", data);
-      if (!res.ok) {
-        alert("Signing failed. Check backend logs.");
-        return;
-      }
+    const data = await res.json();
+    console.log("SIGN RESPONSE:", data);
 
-      // download
-      const a = document.createElement("a");
-      a.href = "data:application/pdf;base64," + data.pdf;
-      a.download = "signed.pdf";
-      a.click();
-    } catch (err) {
-      console.error("sign error", err);
-      alert("Signing failed (network). See console.");
+    if (!res.ok) {
+      alert("Signing failed. Check backend logs.");
+      return;
     }
-  };
+
+    if (!data.signedPdfId) {
+      alert("Backend did not return signedPdfId");
+      return;
+    }
+
+    // ----------------------------
+    // DOWNLOAD SIGNED PDF FROM GRIDFS
+    // ----------------------------
+    const fileUrl = `http://localhost:5000/file/${data.signedPdfId}`;
+
+    const a = document.createElement("a");
+    a.href = fileUrl;
+    a.download = "signed.pdf";   // Browser handles downloading properly
+    a.click();
+
+  } catch (err) {
+    console.error("sign error:", err);
+    alert("Signing failed (network)");
+  }
+};
+
+
 
   // small util
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
