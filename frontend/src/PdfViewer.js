@@ -7,9 +7,10 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
   `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 const PdfViewer = () => {
-
-
-
+  
+  const [pdfBase64, setPdfBase64] = useState("");
+  const signatureBase64 = pdfBase64; // TEMP: replace later
+  
 
   // 1️⃣ State FIRST
   const [pdfSize, setPdfSize] = useState({ width: 0, height: 0 });
@@ -32,7 +33,20 @@ const PdfViewer = () => {
   // 4️⃣ useEffect FOURTH
   useEffect(() => {
     const loadPdf = async () => {
-      const loadingTask = pdfjsLib.getDocument("/sample.pdf");
+      // 1️⃣ Load the REAL PDF file as bytes
+      const pdfBinary = await fetch("/sample.pdf").then((res) => res.arrayBuffer());
+
+      // 2️⃣ Convert PDF bytes → base64
+      const pdfBase64String = btoa(
+      new Uint8Array(pdfBinary)
+      .reduce((data, byte) => data + String.fromCharCode(byte), "")
+      );
+
+      setPdfBase64(pdfBase64String);
+
+      // 3️⃣ Now use pdf.js to render the PDF in canvas
+      const loadingTask = pdfjsLib.getDocument({ data: pdfBinary });
+
       const pdf = await loadingTask.promise;
       const page = await pdf.getPage(1);
 
@@ -75,32 +89,34 @@ const PdfViewer = () => {
   const pdfLoaded = pdfSize.width > 0 && pdfSize.height > 0;
 
   const handleSign = async () => {
-  if (!canvasRef.current) {
-    console.error("Canvas not ready yet");
+  if (!pdfBase64) {
+    console.error("PDF not loaded yet");
     return;
   }
 
-  // 1️⃣ Get PDF image (temporary demo)
-  const canvas = canvasRef.current;
-  const pdfDataUrl = canvas.toDataURL("image/png");
-  const pdfBase64 = pdfDataUrl.split(",")[1];
+  // 1️⃣ TEMP signature (will replace in Step 7)
+  const signatureBase64 = pdfBase64;
 
-  // 2️⃣ TEMP signature (we will replace in Step 6)
-  const placeholderSig = pdfBase64; // using same image just for testing
-
-  // 3️⃣ Backend call
+  // 2️⃣ Backend call
   const response = await fetch("http://localhost:5000/sign-pdf", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       pdfBase64,
-      signatureBase64: placeholderSig,
+      signatureBase64,
       coords: fieldData,
     }),
   });
 
   const result = await response.json();
+  
   console.log("Backend returned:", result);
+
+  // 3️⃣ Download final PDF
+  const a = document.createElement("a");
+  a.href = "data:application/pdf;base64," + result.pdf;
+  a.download = "signed.pdf";
+  a.click();
 };
 
 
