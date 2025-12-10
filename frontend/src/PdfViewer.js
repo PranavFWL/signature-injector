@@ -1,3 +1,4 @@
+// frontend/src/PdfViewer.js
 import React, { useEffect, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist/webpack";
 import FieldOverlay from "./FieldOverlay";
@@ -8,23 +9,24 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
   `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 const PdfViewer = () => {
-
+  // ========= STATES =========
   const [pdfBase64, setPdfBase64] = useState("");
-  const [originalFileName, setOriginalFileName] = useState("sample.pdf");
+  const [originalFileName, setOriginalFileName] = useState("sample");
 
   const [showSignaturePad, setShowSignaturePad] = useState(false);
   const [signatureBase64, setSignatureBase64] = useState("");
 
-  const [pdfSize, setPdfSize] = useState({ width: 0, height: 0 });
+  const [pdfSize, setPdfSize] = useState({ width: 500, height: 700 }); // default size
   const [fieldData, setFieldData] = useState({
     leftPct: 0,
     topPct: 0,
     widthPct: 0,
-    heightPct: 0
+    heightPct: 0,
   });
 
   const canvasRef = useRef(null);
 
+  // ========= SIGNATURE PAD =========
   const openSignaturePad = () => setShowSignaturePad(true);
   const closeSignaturePad = () => setShowSignaturePad(false);
 
@@ -34,95 +36,84 @@ const PdfViewer = () => {
     setShowSignaturePad(false);
   };
 
+  // ========= HANDLE FIELD MOVEMENT =========
   const handleFieldPositionChange = (data) => {
     setFieldData((prev) => ({ ...prev, ...data }));
     console.log("Updated field data:", { ...fieldData, ...data });
   };
 
-  const renderPdfToCanvas = async (pdfBinary) => {
-  const loadingTask = pdfjsLib.getDocument({ data: pdfBinary });
-  const pdf = await loadingTask.promise;
-  const page = await pdf.getPage(1);
+  // ========= RENDER PDF SAFELY =========
+  const renderPdf = async (pdfBinary) => {
+    // Retry if canvas not ready
+    if (!canvasRef.current) {
+      console.warn("Canvas not ready, retrying...");
+      setTimeout(() => renderPdf(pdfBinary), 50);
+      return;
+    }
 
-  const viewport = page.getViewport({ scale: 1.5 });
+    const loadingTask = pdfjsLib.getDocument({ data: pdfBinary });
+    const pdf = await loadingTask.promise;
+    const page = await pdf.getPage(1);
 
-  const canvas = canvasRef.current;
-  const context = canvas.getContext("2d");
+    const viewport = page.getViewport({ scale: 1.5 });
 
-  const dpr = window.devicePixelRatio || 1;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
 
-  canvas.width = viewport.width * dpr;
-  canvas.height = viewport.height * dpr;
+    const dpr = window.devicePixelRatio || 1;
 
-  canvas.style.width = `${viewport.width}px`;
-  canvas.style.height = `${viewport.height}px`;
+    canvas.width = viewport.width * dpr;
+    canvas.height = viewport.height * dpr;
 
-  context.scale(dpr, dpr);
+    canvas.style.width = `${viewport.width}px`;
+    canvas.style.height = `${viewport.height}px`;
 
-  setPdfSize({
-    width: viewport.width,
-    height: viewport.height,
-  });
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  await page.render({
-    canvasContext: context,
-    viewport,
-  }).promise;
+    setPdfSize({
+      width: viewport.width,
+      height: viewport.height,
+    });
+
+    await page.render({ canvasContext: ctx, viewport }).promise;
   };
 
+ 
+  // ========= PDF UPLOAD HANDLER =========
+  const handlePdfUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
 
-useEffect(() => {
-  const loadDefaultPdf = async () => {
-    const pdfBinary = await fetch("/sample.pdf").then(res => res.arrayBuffer());
-    setOriginalFileName("sample");
+    setOriginalFileName(file.name.replace(".pdf", ""));
 
-    const pdfBase64String = btoa(
-      new Uint8Array(pdfBinary).reduce((data, byte) => data + String.fromCharCode(byte), "")
+    const arrayBuffer = await file.arrayBuffer();
+
+    const base64 = btoa(
+      new Uint8Array(arrayBuffer).reduce(
+        (acc, b) => acc + String.fromCharCode(b),
+        ""
+      )
     );
 
-    setPdfBase64(pdfBase64String);
-    renderPdfToCanvas(pdfBinary);
+    setPdfBase64(base64);
+
+    setSignatureBase64("");
+    setFieldData({
+      leftPct: 0,
+      topPct: 0,
+      widthPct: 0,
+      heightPct: 0,
+    });
+
+    setTimeout(() => {
+      renderPdf(arrayBuffer);
+    }, 0);
   };
 
-  loadDefaultPdf();
-  }, []);
-
-
-  const handlePdfUpload = async (event) => {
-  const file = event.target.files[0];
-  if (!file) return;
-
-  setOriginalFileName(file.name.replace(".pdf", ""));
-
-  const arrayBuffer = await file.arrayBuffer();
-
-  // Convert to base64 for backend
-  const pdfBase64String = btoa(
-    new Uint8Array(arrayBuffer).reduce(
-      (data, byte) => data + String.fromCharCode(byte),
-      ""
-    )
-  );
-
-  setPdfBase64(pdfBase64String);
-
-  // Clear previous signature
-  setSignatureBase64("");
-  setFieldData({
-    leftPct: 0,
-    topPct: 0,
-    widthPct: 0,
-    heightPct: 0,
-  });
-
-  // Now render PDF on canvas
-  renderPdfToCanvas(arrayBuffer);
-  };
-
-
+  // ========= SIGN PDF =========
   const handleSign = async () => {
     if (!signatureBase64) {
-      alert("Please draw your signature first.");
+      alert("Draw a signature first.");
       return;
     }
 
@@ -137,66 +128,83 @@ useEffect(() => {
     });
 
     const result = await response.json();
-    console.log("Backend returned:", result);
 
-    // Create final file name
-    const signedName = `${originalFileName}_Signed.pdf`;
+    const finalName = `${originalFileName}_Signed.pdf`;
 
-    // Download
     const a = document.createElement("a");
     a.href = "data:application/pdf;base64," + result.pdf;
-    a.download = signedName;
+    a.download = finalName;
     a.click();
   };
 
   return (
     <div style={{ textAlign: "center" }}>
-
-      {/* PDF Viewer */}
-
+      {/* Upload PDF */}
       <input
-      type="file"
-      accept="application/pdf"
-      onChange={handlePdfUpload}
-      style={{ marginTop: "20px" }}
+        type="file"
+        accept="application/pdf"
+        onChange={handlePdfUpload}
+        style={{ marginTop: "20px" }}
       />
 
-      <div
-        style={{
-          position: "relative",
-          width: pdfSize.width,
-          height: pdfSize.height,
-          margin: "30px auto",
-          border: "1px solid #ddd",
-        }}
-        
-      >
-        <canvas ref={canvasRef} />
+      {pdfBase64 !== "" && (
+  <div
+    style={{
+      position: "relative",
+      width: pdfSize.width,
+      height: pdfSize.height,
+      margin: "30px auto",
+      border: "1px solid #ccc",
+    }}
+  >
+    <canvas ref={canvasRef} style={{ width: "100%", height: "100%" }} />
 
-        {/* SHOW SIGNATURE BOX ONLY AFTER USER DRAWS SIGNATURE */}
-        {signatureBase64 && pdfSize.width > 0 && (
-          <FieldOverlay
-            onChangePosition={handleFieldPositionChange}
-            pdfWidth={pdfSize.width}
-            pdfHeight={pdfSize.height}
-            signatureBase64={signatureBase64}
-          />
-        )}
-      </div>
+    {/* SHOW SIGNATURE BOX ONLY AFTER USER DRAWS SIGNATURE */}
+    {signatureBase64 && pdfSize.width > 0 && (
+      <FieldOverlay
+        onChangePosition={handleFieldPositionChange}
+        pdfWidth={pdfSize.width}
+        pdfHeight={pdfSize.height}
+        signatureBase64={signatureBase64}
+      />
+    )}
+  </div>
+)}
 
-      {/* Buttons */}
-      <button onClick={openSignaturePad}
-        style={{ marginRight: "10px", marginTop: "20px", padding: "10px", fontSize: "16px" }}>
-        Draw Signature
-      </button>
 
-      <button onClick={handleSign}
-        disabled={!signatureBase64}
-        style={{ marginTop: "20px", padding: "10px", fontSize: "16px" }}>
-        Sign PDF
-      </button>
+      {/* Action Buttons */}
+      {pdfBase64 !== "" && (
+  <div style={{ marginTop: "20px" }}>
+    <button
+      onClick={openSignaturePad}
+      style={{
+        marginRight: "10px",
+        padding: "12px 24px",
+        fontSize: "18px",
+        borderRadius: "8px",
+        cursor: "pointer",
+      }}
+    >
+      Draw Signature
+    </button>
 
-      {/* Signature Pad */}
+    <button
+      onClick={handleSign}
+      disabled={!signatureBase64}
+      style={{
+        padding: "12px 24px",
+        fontSize: "18px",
+        borderRadius: "8px",
+        cursor: "pointer",
+      }}
+    >
+      Download PDF
+    </button>
+  </div>
+)}
+
+
+      {/* Signature Pad Modal */}
       {showSignaturePad && (
         <SignaturePad onSave={saveSignature} onClose={closeSignaturePad} />
       )}
