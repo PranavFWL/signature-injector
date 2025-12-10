@@ -21,3 +21,9 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+sigX: 231.33333333333334,
+  sigY: 26.706666666666592,
+  sigWidth: 133.33333333333334,
+  sigHeight: 53.333333333333336,
+  pageIndex: 0
