@@ -1,215 +1,307 @@
 // frontend/src/PdfViewer.js
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist/webpack";
 import FieldOverlay from "./FieldOverlay";
 import SignaturePad from "./SignaturePad";
 
-// PDF worker
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
-const PdfViewer = () => {
-  // ========= STATES =========
-  const [pdfBase64, setPdfBase64] = useState("");
-  const [originalFileName, setOriginalFileName] = useState("sample");
-
-  const [showSignaturePad, setShowSignaturePad] = useState(false);
+export default function PdfViewer() {
+  const [pdfId, setPdfId] = useState("");
+  const [originalFileName, setOriginalFileName] = useState("document");
   const [signatureBase64, setSignatureBase64] = useState("");
+  const [showSignaturePad, setShowSignaturePad] = useState(false);
 
-  const [pdfSize, setPdfSize] = useState({ width: 500, height: 700 }); // default size
+  const [numPages, setNumPages] = useState(0);
+  const [pagesMeta, setPagesMeta] = useState([]); // [{width,height}, ...]
+  const canvasRefs = useRef([]); // canvasRefs.current[idx] -> <canvas>
+
+  // canonical single signature placement (percentage coords relative to page)
   const [fieldData, setFieldData] = useState({
+    pageIndex: 0, // 0-based
     leftPct: 0,
     topPct: 0,
     widthPct: 0,
     heightPct: 0,
   });
 
-  const canvasRef = useRef(null);
+  // -------------------------
+  // Render helpers
+  // -------------------------
+  const renderSinglePage = async (pdf, pageNum) => {
+    // pageNum: 1-based
+    const canvas = canvasRefs.current[pageNum - 1];
+    if (!canvas) return;
 
-  // ========= SIGNATURE PAD =========
-  const openSignaturePad = () => setShowSignaturePad(true);
-  const closeSignaturePad = () => setShowSignaturePad(false);
-
-  const saveSignature = (dataURL) => {
-    const cleaned = dataURL.split(",")[1];
-    setSignatureBase64(cleaned);
-    setShowSignaturePad(false);
-  };
-
-  // ========= HANDLE FIELD MOVEMENT =========
-  const handleFieldPositionChange = (data) => {
-    setFieldData((prev) => ({ ...prev, ...data }));
-    console.log("Updated field data:", { ...fieldData, ...data });
-  };
-
-  // ========= RENDER PDF SAFELY =========
-  const renderPdf = async (pdfBinary) => {
-    // Retry if canvas not ready
-    if (!canvasRef.current) {
-      console.warn("Canvas not ready, retrying...");
-      setTimeout(() => renderPdf(pdfBinary), 50);
-      return;
-    }
-
-    const loadingTask = pdfjsLib.getDocument({ data: pdfBinary });
-    const pdf = await loadingTask.promise;
-    const page = await pdf.getPage(1);
-
+    const page = await pdf.getPage(pageNum);
     const viewport = page.getViewport({ scale: 1.5 });
 
-    const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
-
     const dpr = window.devicePixelRatio || 1;
 
     canvas.width = viewport.width * dpr;
     canvas.height = viewport.height * dpr;
-
     canvas.style.width = `${viewport.width}px`;
     canvas.style.height = `${viewport.height}px`;
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    setPdfSize({
-      width: viewport.width,
-      height: viewport.height,
-    });
-
     await page.render({ canvasContext: ctx, viewport }).promise;
   };
 
- 
-  // ========= PDF UPLOAD HANDLER =========
-  const handlePdfUpload = async (event) => {
-    const file = event.target.files[0];
+  const renderAllPages = async (pdfBinary) => {
+    const loadingTask = pdfjsLib.getDocument({ data: pdfBinary });
+    const pdf = await loadingTask.promise;
+
+    const total = pdf.numPages;
+    setNumPages(total);
+    canvasRefs.current = new Array(total).fill(null);
+
+    // collect meta
+    const meta = [];
+    for (let i = 1; i <= total; i++) {
+      const page = await pdf.getPage(i);
+      const vp = page.getViewport({ scale: 1.5 });
+      meta.push({ width: vp.width, height: vp.height });
+    }
+
+    setPagesMeta(meta);
+
+    // give react one tick to mount canvases, then render pages
+    setTimeout(async () => {
+      for (let i = 1; i <= total; i++) {
+        await renderSinglePage(pdf, i);
+      }
+    }, 60);
+  };
+
+  // -------------------------
+  // Upload PDF: render locally and upload to backend for a pdfId
+  // -------------------------
+  const handlePdfUpload = async (e) => {
+    const file = e.target.files?.[0];
     if (!file) return;
 
-    setOriginalFileName(file.name.replace(".pdf", ""));
+    setOriginalFileName(file.name.replace(/\.pdf$/i, ""));
+    setSignatureBase64(""); // clear previous signature
 
     const arrayBuffer = await file.arrayBuffer();
 
-    const base64 = btoa(
-      new Uint8Array(arrayBuffer).reduce(
-        (acc, b) => acc + String.fromCharCode(b),
-        ""
-      )
-    );
+    // upload the file (backend should return pdfId)
+    try {
+      const fd = new FormData();
+      fd.append("file", new Blob([arrayBuffer], { type: "application/pdf" }), file.name);
 
-    setPdfBase64(base64);
+      const resp = await fetch("http://localhost:5000/upload-pdf", {
+        method: "POST",
+        body: fd,
+      });
 
-    setSignatureBase64("");
-    setFieldData({
-      leftPct: 0,
-      topPct: 0,
-      widthPct: 0,
-      heightPct: 0,
-    });
+      const data = await resp.json();
+      if (!resp.ok) {
+        console.error("upload failed", data);
+        alert("Upload failed");
+        return;
+      }
 
-    setTimeout(() => {
-      renderPdf(arrayBuffer);
-    }, 0);
-  };
-
-  // ========= SIGN PDF =========
-  const handleSign = async () => {
-    if (!signatureBase64) {
-      alert("Draw a signature first.");
+      setPdfId(data.pdfId || "");
+    } catch (err) {
+      console.error("upload error", err);
+      alert("Upload failed");
       return;
     }
 
-    const response = await fetch("http://localhost:5000/sign-pdf", {
+    // render pages locally for preview
+    await renderAllPages(arrayBuffer);
+  };
+
+  // -------------------------
+  // Signature saved: set default bottom-center for page 0
+  // -------------------------
+  const saveSignature = (dataURL) => {
+    const cleaned = dataURL.split(",")[1];
+    setSignatureBase64(cleaned);
+
+    // default placement at bottom center of page 0 if meta exists
+    if (pagesMeta && pagesMeta.length > 0) {
+      const m = pagesMeta[0];
+      const defaultW = Math.min(200, m.width * 0.4);
+      const defaultH = defaultW * 0.4;
+
+      setFieldData({
+        pageIndex: 0,
+        leftPct: (m.width / 2 - defaultW / 2) / m.width,
+        topPct: (m.height - defaultH - 40) / m.height,
+        widthPct: defaultW / m.width,
+        heightPct: defaultH / m.height,
+      });
+    }
+
+    setShowSignaturePad(false);
+  };
+
+  // -------------------------
+  // When user picks a different page from dropdown
+  // preserve pixel size: convert old px → new pct
+  // -------------------------
+  const handlePageChange = (newIndex) => {
+    const oldIndex = fieldData.pageIndex;
+    if (!pagesMeta[oldIndex] || !pagesMeta[newIndex]) {
+      setFieldData((prev) => ({ ...prev, pageIndex: newIndex }));
+      return;
+    }
+
+    const from = pagesMeta[oldIndex];
+    const to = pagesMeta[newIndex];
+
+    const pxLeft = fieldData.leftPct * from.width;
+    const pxTop = fieldData.topPct * from.height;
+    const pxW = fieldData.widthPct * from.width;
+    const pxH = fieldData.heightPct * from.height;
+
+    // clamp positions so box stays inside new page
+    const newLeftPct = Math.min(Math.max(pxLeft / to.width, 0), 1 - pxW / to.width);
+    const newTopPct = Math.min(Math.max(pxTop / to.height, 0), 1 - pxH / to.height);
+    const newW = Math.min(pxW / to.width, 1);
+    const newH = Math.min(pxH / to.height, 1);
+
+    setFieldData({
+      pageIndex: newIndex,
+      leftPct: newLeftPct,
+      topPct: newTopPct,
+      widthPct: newW,
+      heightPct: newH,
+    });
+  };
+
+  // -------------------------
+  // Called by FieldOverlay when user drags/resizes
+  // field overlay will pass leftPct, topPct, widthPct, heightPct and pageIndex
+  // -------------------------
+  const handleFieldPositionChange = (upd) => {
+    setFieldData((prev) => ({ ...prev, ...upd }));
+  };
+
+  // -------------------------
+  // Send sign request
+  // -------------------------
+  const handleSign = async () => {
+    if (!pdfId) return alert("Please upload PDF first.");
+    if (!signatureBase64) return alert("Please draw your signature first.");
+
+    const payload = {
+      pdfId,
+      signatureBase64,
+      coords: {
+        pageIndex: fieldData.pageIndex,
+        leftPct: fieldData.leftPct,
+        topPct: fieldData.topPct,
+        widthPct: fieldData.widthPct,
+        heightPct: fieldData.heightPct,
+      },
+    };
+
+    const resp = await fetch("http://localhost:5000/sign-pdf", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        pdfBase64,
-        signatureBase64,
-        coords: fieldData,
-      }),
+      body: JSON.stringify(payload),
     });
 
-    const result = await response.json();
+    const data = await resp.json();
+    if (!resp.ok) {
+      console.error("sign failed", data);
+      alert("Signing failed");
+      return;
+    }
 
-    const finalName = `${originalFileName}_Signed.pdf`;
-
+    // download signed pdf (backend returns base64)
     const a = document.createElement("a");
-    a.href = "data:application/pdf;base64," + result.pdf;
-    a.download = finalName;
+    a.href = "data:application/pdf;base64," + data.pdf;
+    a.download = `${originalFileName}_Signed.pdf`;
     a.click();
   };
 
+  // -------------------------
+  // Render
+  // -------------------------
   return (
-    <div style={{ textAlign: "center" }}>
-      {/* Upload PDF */}
-      <input
-        type="file"
-        accept="application/pdf"
-        onChange={handlePdfUpload}
-        style={{ marginTop: "20px" }}
-      />
+    <div style={{ maxWidth: 1000, margin: "0 auto", padding: 20 }}>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
+        <input type="file" accept="application/pdf" onChange={handlePdfUpload} />
 
-      {pdfBase64 !== "" && (
-  <div
-    style={{
-      position: "relative",
-      width: pdfSize.width,
-      height: pdfSize.height,
-      margin: "30px auto",
-      border: "1px solid #ccc",
-    }}
-  >
-    <canvas ref={canvasRef} style={{ width: "100%", height: "100%" }} />
+        {/* page selector appears only after PDF loaded and signature exists */}
+        {pagesMeta.length > 0 && signatureBase64 && (
+          <>
+            <label style={{ marginLeft: "auto" }}>Signature page:</label>
+            <select
+              value={fieldData.pageIndex}
+              onChange={(e) => handlePageChange(Number(e.target.value))}
+            >
+              {pagesMeta.map((_, idx) => (
+                <option key={idx} value={idx}>
+                  Page {idx + 1}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
 
-    {/* SHOW SIGNATURE BOX ONLY AFTER USER DRAWS SIGNATURE */}
-    {signatureBase64 && pdfSize.width > 0 && (
-      <FieldOverlay
-        onChangePosition={handleFieldPositionChange}
-        pdfWidth={pdfSize.width}
-        pdfHeight={pdfSize.height}
-        signatureBase64={signatureBase64}
-      />
-    )}
-  </div>
-)}
+        {pagesMeta.length > 0 && (
+          <div style={{ marginLeft: "12px" }}>
+            <button onClick={() => setShowSignaturePad(true)}>Draw Signature</button>
+            <button onClick={handleSign} disabled={!signatureBase64} style={{ marginLeft: 8 }}>
+              Download PDF
+            </button>
+          </div>
+        )}
+      </div>
 
+      {/* Pages */}
+      <div>
+        {pagesMeta.map((meta, idx) => (
+          <div
+            key={idx}
+            style={{
+              position: "relative",
+              marginBottom: 20,
+              width: meta.width,
+              border: "1px solid #ddd",
+              boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
+            }}
+          >
+            <canvas ref={(el) => (canvasRefs.current[idx] = el)} />
 
-      {/* Action Buttons */}
-      {pdfBase64 !== "" && (
-  <div style={{ marginTop: "20px" }}>
-    <button
-      onClick={openSignaturePad}
-      style={{
-        marginRight: "10px",
-        padding: "12px 24px",
-        fontSize: "18px",
-        borderRadius: "8px",
-        cursor: "pointer",
-      }}
-    >
-      Draw Signature
-    </button>
+            {/* Only show the single signature overlay when signature exists and page matches */}
+            {signatureBase64 && fieldData.pageIndex === idx && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: meta.width,
+                  height: meta.height,
+                  pointerEvents: "none",
+                }}
+              >
+                <div style={{ pointerEvents: "auto", width: "100%", height: "100%" }}>
+                  <FieldOverlay
+                    pageIndex={idx}
+                    pdfWidth={meta.width}
+                    pdfHeight={meta.height}
+                    signatureBase64={signatureBase64}
+                    onChangePosition={(d) => handleFieldPositionChange({ pageIndex: idx, ...d })}
+                    initialField={fieldData}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
 
-    <button
-      onClick={handleSign}
-      disabled={!signatureBase64}
-      style={{
-        padding: "12px 24px",
-        fontSize: "18px",
-        borderRadius: "8px",
-        cursor: "pointer",
-      }}
-    >
-      Download PDF
-    </button>
-  </div>
-)}
-
-
-      {/* Signature Pad Modal */}
       {showSignaturePad && (
-        <SignaturePad onSave={saveSignature} onClose={closeSignaturePad} />
+        <SignaturePad onSave={saveSignature} onClose={() => setShowSignaturePad(false)} />
       )}
     </div>
   );
-};
-
-export default PdfViewer;
+}
