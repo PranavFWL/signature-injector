@@ -2,10 +2,6 @@ import React from "react";
 import { Rnd } from "react-rnd";
 
 const FieldOverlay = ({ onChangePosition, pdfWidth, pdfHeight }) => {
-
-  // Avoid division by zero
-  if (pdfWidth === 0 || pdfHeight === 0) return null;
-
   return (
     <Rnd
       default={{
@@ -18,6 +14,9 @@ const FieldOverlay = ({ onChangePosition, pdfWidth, pdfHeight }) => {
       onDragStop={(e, d) => {
         const leftPct = d.x / pdfWidth;
         const topPct = d.y / pdfHeight;
+
+        console.log("Dragged:", { leftPct, topPct });
+
         onChangePosition({ leftPct, topPct });
       }}
       onResizeStop={(e, direction, ref, delta, position) => {
@@ -29,6 +28,8 @@ const FieldOverlay = ({ onChangePosition, pdfWidth, pdfHeight }) => {
 
         const leftPct = position.x / pdfWidth;
         const topPct = position.y / pdfHeight;
+
+        console.log("Resized:", { leftPct, topPct, widthPct, heightPct });
 
         onChangePosition({
           leftPct,
