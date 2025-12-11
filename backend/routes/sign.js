@@ -1,7 +1,7 @@
 // backend/routes/sign.js
 const express = require("express");
 const router = express.Router();
-const { PDFDocument, StandardFonts } = require("pdf-lib");
+const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
 const crypto = require("crypto");
 
 /**
@@ -231,25 +231,29 @@ router.post("/sign-pdf", async (req, res) => {
               const cy = fieldBottomY + fieldH / 2;
               const innerR = circleR * 0.6;
 
-              // Draw outer circle
+              // Blue color matching frontend: #667eea = rgb(102, 126, 234)
+              const blueColor = rgb(102/255, 126/255, 234/255);
+
+              // Draw outer circle with blue border (no fill)
               page.drawEllipse({
                 x: cx,
                 y: cy,
                 xScale: circleR,
                 yScale: circleR,
+                borderColor: blueColor,
                 borderWidth: 1.33, // 2px / 1.5 = 1.33 points
+                // No 'color' property means no fill (transparent)
               });
 
-              // If selected, fill inner circle
+              // If selected, fill inner circle with blue
               if (f.selected) {
                 page.drawEllipse({
                   x: cx,
                   y: cy,
                   xScale: innerR,
                   yScale: innerR,
-                  color: undefined, // use default (black) fill
+                  color: blueColor, // blue fill
                   borderWidth: 0,
-                  opacity: 1,
                 });
               }
 
