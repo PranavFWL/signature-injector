@@ -1,4 +1,3 @@
-// frontend/src/FieldOverlay.js
 import React, { useState, useEffect } from "react";
 
 export default function FieldOverlay({
@@ -17,11 +16,8 @@ export default function FieldOverlay({
   const [drag, setDrag] = useState(null);
   const [editing, setEditing] = useState(false);
 
-  // ----------------------
-  // DRAGGING
-  // ----------------------
   const startDrag = (e) => {
-    if (e.target.dataset?.edit === "true") return; // don’t drag while editing
+    if (e.target.dataset?.edit === "true") return;
     e.stopPropagation();
     setDrag({
       offsetX: e.clientX - x,
@@ -43,9 +39,6 @@ export default function FieldOverlay({
 
   const endDrag = () => setDrag(null);
 
-  // ----------------------
-  // RESIZING
-  // ----------------------
   const startResize = (e) => {
     e.stopPropagation();
     setDrag({
@@ -74,9 +67,6 @@ export default function FieldOverlay({
 
   const endResize = () => setDrag(null);
 
-  // ----------------------
-  // GLOBAL EVENT HANDLERS
-  // ----------------------
   useEffect(() => {
     window.addEventListener("mousemove", drag?.resizing ? doResize : doDrag);
     window.addEventListener("mouseup", drag?.resizing ? endResize : endDrag);
@@ -87,9 +77,6 @@ export default function FieldOverlay({
     };
   });
 
-  // ----------------------
-  // IMAGE UPLOAD HANDLER
-  // ----------------------
   const handleImageUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -119,10 +106,8 @@ export default function FieldOverlay({
       }}
       onMouseDown={startDrag}
     >
-      {/* ---------- FIELD CONTENT ---------- */}
       <div style={{ padding: 4, height: "100%", width: "100%" }}>
-        
-        {/* TEXT FIELD */}
+
         {type === "text" && (
           <input
             data-edit="true"
@@ -140,7 +125,6 @@ export default function FieldOverlay({
           />
         )}
 
-        {/* DATE FIELD */}
         {type === "date" && (
           <input
             data-edit="true"
@@ -156,7 +140,6 @@ export default function FieldOverlay({
           />
         )}
 
-        {/* RADIO FIELD */}
         {type === "radio" && (
           <div
             style={{
@@ -190,7 +173,6 @@ export default function FieldOverlay({
           </div>
         )}
 
-        {/* IMAGE FIELD */}
         {type === "image" && (
           <div style={{ width: "100%", height: "100%" }}>
             {value ? (
@@ -223,7 +205,6 @@ export default function FieldOverlay({
           </div>
         )}
 
-        {/* SIGNATURE FIELD */}
         {type === "signature" && value && (
           <img
             src={`data:image/png;base64,${value}`}
@@ -233,7 +214,6 @@ export default function FieldOverlay({
         )}
       </div>
 
-      {/* ---------- RESIZE HANDLE ---------- */}
       <div
         onMouseDown={startResize}
         style={{

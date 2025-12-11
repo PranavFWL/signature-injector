@@ -1,4 +1,3 @@
-// frontend/src/PdfViewer.js
 import React, { useState, useRef } from "react";
 import * as pdfjsLib from "pdfjs-dist/webpack";
 import FieldOverlay from "./FieldOverlay";
@@ -9,15 +8,14 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 
 export default function PdfViewer() {
   const [pdfId, setPdfId] = useState("");
-  const [pagesMeta, setPagesMeta] = useState([]); // {width, height}
+  const [pagesMeta, setPagesMeta] = useState([]);
   const canvasRefs = useRef([]);
 
-  const [tool, setTool] = useState(null); // "text","signature","image","date","radio"
-  const [fields, setFields] = useState([]); // {id,type,pageIndex,leftPct,topPct,widthPct,heightPct,value}
+  const [tool, setTool] = useState(null);
+  const [fields, setFields] = useState([]);
   const [showSignaturePad, setShowSignaturePad] = useState(false);
   const [signatureTargetId, setSignatureTargetId] = useState(null);
 
-  // Render all pages (pdfBinary = ArrayBuffer)
   const renderAllPages = async (pdfBinary) => {
     console.log("renderAllPages — start");
     const loadingTask = pdfjsLib.getDocument({ data: pdfBinary });
@@ -35,7 +33,6 @@ export default function PdfViewer() {
     }
     setPagesMeta(meta);
 
-    // allow React to mount canvases
     setTimeout(async () => {
       for (let i = 1; i <= total; i++) {
         await renderPage(pdf, i);
@@ -64,7 +61,6 @@ export default function PdfViewer() {
     console.log("rendered page", pageNum);
   };
 
-  // Upload handler — render and also upload to backend for storage (returns pdfId)
   const handleUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -72,14 +68,12 @@ export default function PdfViewer() {
 
     const arrayBuffer = await file.arrayBuffer();
 
-    // render locally
     renderAllPages(arrayBuffer);
 
-    // upload to backend (FormData) — backend should return { pdfId }
     try {
       const fd = new FormData();
       fd.append("file", new Blob([arrayBuffer], { type: "application/pdf" }), file.name);
-      const res = await fetch("https://signature-injector-1.onrender.com/sign-pdf", { method: "POST", body: fd });
+      const res = await fetch("https://signature-injector-3.onrender.com/sign-pdf", { method: "POST", body: fd });
       const data = await res.json();
       console.log("upload response:", data);
       if (!res.ok) {
@@ -93,21 +87,18 @@ export default function PdfViewer() {
     }
   };
 
-  // Page click: place tool / field
   const handlePageClick = (e, pageIndex) => {
     if (!tool) return;
     const meta = pagesMeta[pageIndex];
     if (!meta) return;
 
-    // canvas bounding rect uses CSS px (we set canvas style width = vp.width)
-    const rect = e.currentTarget.getBoundingClientRect(); // wrapper div
+    const rect = e.currentTarget.getBoundingClientRect();
     const xPx = e.clientX - rect.left;
     const yPx = e.clientY - rect.top;
 
-    // convert to page space (we used vp.width/height as CSS)
     const leftPct = xPx / meta.width;
     const topPct = yPx / meta.height;
-    const widthPct = Math.min(0.3, 0.25); // default widthPct
+    const widthPct = Math.min(0.3, 0.25);
     const heightPct = 0.08;
 
     const id = Math.random().toString(36).slice(2, 9);
@@ -119,22 +110,20 @@ export default function PdfViewer() {
       topPct: clamp(topPct - heightPct / 2, 0, 1 - heightPct),
       widthPct,
       heightPct,
-      value: "", // signature/image: base64, text/date/radio: user value
+      value: "",
     };
 
     console.log("placing field", newField);
     setFields((prev) => [...prev, newField]);
 
-    // if signature tool — open pad immediately and remember target
     if (tool === "signature") {
       setSignatureTargetId(id);
       setShowSignaturePad(true);
     }
 
-    setTool(null); // reset selected tool
+    setTool(null);
   };
 
-  // Save signature dataURL (from SignaturePad)
   const handleSignatureSave = (dataURL) => {
     if (!signatureTargetId) {
       console.warn("no target for signature");
@@ -151,12 +140,11 @@ export default function PdfViewer() {
     setFields((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
   };
 
-  // Sign & download: sends `pdfId` + `fields` to backend sign endpoint
   const handleSign = async () => {
   if (!pdfId) return alert("Upload PDF first");
 
   try {
-    const res = await fetch("https://signature-injector-1.onrender.com/sign-pdf", {
+    const res = await fetch("https://signature-injector-3.onrender.com/sign-pdf", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pdfId, fields }),
@@ -175,14 +163,11 @@ export default function PdfViewer() {
       return;
     }
 
-    // ----------------------------
-    // DOWNLOAD SIGNED PDF FROM GRIDFS
-    // ----------------------------
-    const fileUrl = `https://signature-injector-1.onrender.com/file/${data.signedPdfId}`;
+    const fileUrl = `https://signature-injector-3.onrender.com/file/${data.signedPdfId}`;
 
     const a = document.createElement("a");
     a.href = fileUrl;
-    a.download = "signed.pdf";   // Browser handles downloading properly
+    a.download = "signed.pdf";
     a.click();
 
   } catch (err) {
@@ -191,9 +176,6 @@ export default function PdfViewer() {
   }
 };
 
-
-
-  // small util
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
   return (
@@ -215,7 +197,6 @@ export default function PdfViewer() {
         <div style={{ padding: 30, textAlign: "center", color: "#666" }}>Upload a PDF to begin</div>
       )}
 
-      {/* pages */}
       {pagesMeta.map((meta, idx) => (
         <div
           key={idx}
@@ -231,7 +212,6 @@ export default function PdfViewer() {
         >
           <canvas ref={(el) => (canvasRefs.current[idx] = el)} />
 
-          {/* render overlays for fields on this page */}
           {fields
             .filter((f) => f.pageIndex === idx)
             .map((f) => (

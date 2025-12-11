@@ -1,4 +1,3 @@
-// frontend/src/SignaturePad.js
 import React, { useRef } from "react";
 import SignatureCanvas from "react-signature-canvas";
 
@@ -6,7 +5,6 @@ export default function SignaturePad({ onSave, onClose }) {
   const sigRef = useRef(null);
 
   const handleSave = () => {
-    // use getCanvas() → toDataURL avoids trim_canvas import issues
     const canvas = sigRef.current?.getCanvas();
     if (!canvas) {
       alert("No signature drawn");

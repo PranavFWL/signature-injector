@@ -2,31 +2,24 @@ import React, { useState, useRef, useEffect } from "react";
 import * as pdfjsLib from "pdfjs-dist/webpack";
 import "./PdfEditor.css";
 
-// Single-file drop-in: PdfEditor contains PdfViewer, FieldOverlay and SignaturePad
-// Put this file at src/components/PdfEditor.js and import <PdfEditor/> from your app.
-
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 export default function PdfEditor() {
-  // --- Pdf viewer state ---
   const [pdfId, setPdfId] = useState("");
-  const [pagesMeta, setPagesMeta] = useState([]); // [{width,height}]
+  const [pagesMeta, setPagesMeta] = useState([]);
   const canvasRefs = useRef([]);
   const pageRefs = useRef([]);
   const mainContentRef = useRef(null);
 
-  const [tool, setTool] = useState(null); // text|signature|image|date|radio
-  const [fields, setFields] = useState([]); // {id,type,pageIndex,leftPct,topPct,widthPct,heightPct,value}
+  const [tool, setTool] = useState(null);
+  const [fields, setFields] = useState([]);
 
-  // signature modal
   const [showSignaturePad, setShowSignaturePad] = useState(false);
   const [signatureTargetId, setSignatureTargetId] = useState(null);
 
-  // drag and drop state
   const [isDragOver, setIsDragOver] = useState(false);
 
-  // render pages from ArrayBuffer
   const renderAllPages = async (pdfBinary) => {
     const loadingTask = pdfjsLib.getDocument({ data: pdfBinary });
     const pdf = await loadingTask.promise;
@@ -44,7 +37,6 @@ export default function PdfEditor() {
 
     setPagesMeta(meta);
 
-    // allow React to mount canvases
     setTimeout(async () => {
       for (let i = 1; i <= total; i++) {
         await renderPage(pdf, i);
@@ -69,7 +61,6 @@ export default function PdfEditor() {
     await page.render({ canvasContext: ctx, viewport: vp }).promise;
   };
 
-  // --- upload handler ---
   const handleFileProcess = async (file) => {
     if (!file || file.type !== "application/pdf") {
       alert("Please select a valid PDF file.");
@@ -78,11 +69,10 @@ export default function PdfEditor() {
     const arrayBuffer = await file.arrayBuffer();
     renderAllPages(arrayBuffer);
 
-    // upload to backend
     try {
       const fd = new FormData();
       fd.append("file", new Blob([arrayBuffer], { type: "application/pdf" }), file.name);
-      const res = await fetch("https://signature-injector-1.onrender.com/upload-pdf", { method: "POST", body: fd });
+      const res = await fetch("https://signature-injector-3.onrender.com/upload-pdf", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) {
         alert("Upload failed. Check backend logs.");
@@ -121,7 +111,6 @@ export default function PdfEditor() {
     setIsDragOver(false);
   };
 
-  // --- Get the currently visible page in the viewport ---
   const getVisiblePageIndex = () => {
     if (!mainContentRef.current || pageRefs.current.length === 0) return 0;
 
@@ -148,7 +137,6 @@ export default function PdfEditor() {
     return closestPageIndex;
   };
 
-  // --- Handle tool button click - place field at center of visible page ---
   const handleToolClick = (toolType) => {
     if (!pagesMeta || pagesMeta.length === 0) {
       alert("Please upload a PDF first.");
@@ -159,7 +147,6 @@ export default function PdfEditor() {
     const meta = pagesMeta[pageIndex];
     if (!meta) return;
 
-    // Optimize size based on field type
     let widthPct, heightPct;
     switch (toolType) {
       case "text":
@@ -187,13 +174,11 @@ export default function PdfEditor() {
         heightPct = 0.05;
     }
 
-    // Place at center of the page
     const leftPct = (1 - widthPct) / 2;
     const topPct = (1 - heightPct) / 2;
 
     const id = Math.random().toString(36).slice(2, 9);
 
-    // For radio buttons, create with additional properties
     const newField = {
       id,
       type: toolType,
@@ -205,7 +190,7 @@ export default function PdfEditor() {
       value: "",
       ...(toolType === "radio" && {
         label: "Option",
-        groupId: id, // Each radio starts as its own group
+        groupId: id,
         selected: false
       })
     };
@@ -220,22 +205,19 @@ export default function PdfEditor() {
     setTool(null);
   };
 
-  // --- place field on page click (kept for backward compatibility) ---
   const handlePageClick = (e, pageIndex) => {
     if (!tool) return;
     const meta = pagesMeta[pageIndex];
     if (!meta) return;
 
-    // wrapper rect (the div that contains canvas)
     const rect = e.currentTarget.getBoundingClientRect();
-    const xPx = e.clientX - rect.left;
-    const yPx = e.clientY - rect.top;
 
-    // convert to page space (we used vp.width/height as CSS)
-    const leftPct = xPx / meta.width;
-    const topPct = yPx / meta.height;
+    const x = (e.clientX - rect.left) * (meta.width / rect.width);
+    const y = (e.clientY - rect.top) * (meta.height / rect.height);
 
-    // Optimize size based on field type
+    const leftPct = x / meta.width;
+    const topPct = y / meta.height;
+
     let widthPct, heightPct;
     switch (tool) {
       case "text":
@@ -300,12 +282,10 @@ export default function PdfEditor() {
 
   const handleFieldChange = (id, patch) => {
     setFields((prev) => {
-      // Special handling for radio buttons
       if (patch.hasOwnProperty('selected')) {
         const currentField = prev.find((f) => f.id === id);
 
         if (currentField && currentField.type === 'radio' && patch.selected === true) {
-          // When selecting a radio, unselect all others in the same group
           return prev.map((f) => {
             if (f.id === id) {
               return { ...f, ...patch };
@@ -317,7 +297,6 @@ export default function PdfEditor() {
         }
       }
 
-      // Default behavior for all other fields
       return prev.map((f) => (f.id === id ? { ...f, ...patch } : f));
     });
   };
@@ -326,11 +305,10 @@ export default function PdfEditor() {
     setFields((prev) => prev.filter((f) => f.id !== id));
   };
 
-  // --- sign and download ---
   const handleSign = async () => {
     if (!pdfId) return alert("Upload PDF to server first.");
     try {
-      const res = await fetch("https://signature-injector-1.onrender.com/sign-pdf", {
+      const res = await fetch("https://signature-injector-3.onrender.com/sign-pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pdfId, fields }),
@@ -514,15 +492,12 @@ export default function PdfEditor() {
   );
 }
 
-// ---------------- FieldOverlay ----------------
 function FieldOverlay({ field, pdfWidth, pdfHeight, onChange, onDelete, onRequestOpenSignature }) {
-  // convert pct <-> px via pdfWidth/pdfHeight
   const wrapperRef = useRef(null);
   const [dragging, setDragging] = useState(false);
   const [resizing, setResizing] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
 
-  // local temp pos to avoid excessive re-renders while dragging
   const posRef = useRef({ leftPct: field.leftPct, topPct: field.topPct, widthPct: field.widthPct, heightPct: field.heightPct });
 
   useEffect(() => {
@@ -534,27 +509,30 @@ function FieldOverlay({ field, pdfWidth, pdfHeight, onChange, onDelete, onReques
   const widthPx = posRef.current.widthPct * pdfWidth;
   const heightPx = posRef.current.heightPct * pdfHeight;
 
-  // Track if we just dragged to prevent click events
   const justDraggedRef = useRef(false);
 
-  // DRAG
   const onMouseDownDrag = (e) => {
     e.stopPropagation();
     e.preventDefault();
 
     const startX = e.clientX;
     const startY = e.clientY;
-    const startLeft = posRef.current.leftPct * pdfWidth;
-    const startTop = posRef.current.topPct * pdfHeight;
+    const startLeftPx = posRef.current.leftPct * pdfWidth;
+    const startTopPx = posRef.current.topPct * pdfHeight;
+
+    const parentEl = wrapperRef.current?.parentElement;
+    if (!parentEl) return;
+    const parentRect = parentEl.getBoundingClientRect();
+    const scaleX = pdfWidth / parentRect.width;
+    const scaleY = pdfHeight / parentRect.height;
 
     let hasMoved = false;
-    const dragThreshold = 3; // pixels - minimum movement to start dragging
+    const dragThreshold = 3;
 
     const onMove = (mv) => {
-      const dx = mv.clientX - startX;
-      const dy = mv.clientY - startY;
+      const dx = (mv.clientX - startX) * scaleX;
+      const dy = (mv.clientY - startY) * scaleY;
 
-      // Only start dragging if moved beyond threshold
       if (!hasMoved && (Math.abs(dx) > dragThreshold || Math.abs(dy) > dragThreshold)) {
         hasMoved = true;
         setDragging(true);
@@ -562,16 +540,14 @@ function FieldOverlay({ field, pdfWidth, pdfHeight, onChange, onDelete, onReques
 
       if (hasMoved) {
         justDraggedRef.current = true;
-        let newLeftPx = startLeft + dx;
-        let newTopPx = startTop + dy;
-        // clamp
+        let newLeftPx = startLeftPx + dx;
+        let newTopPx = startTopPx + dy;
         newLeftPx = Math.max(0, Math.min(newLeftPx, pdfWidth - widthPx));
         newTopPx = Math.max(0, Math.min(newTopPx, pdfHeight - heightPx));
         const newLeftPct = newLeftPx / pdfWidth;
         const newTopPct = newTopPx / pdfHeight;
         posRef.current.leftPct = newLeftPct;
         posRef.current.topPct = newTopPct;
-        // visual update by forcing a small state change via onChange (throttle could be added)
         onChange({ leftPct: newLeftPct, topPct: newTopPct });
       }
     };
@@ -581,7 +557,6 @@ function FieldOverlay({ field, pdfWidth, pdfHeight, onChange, onDelete, onReques
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
 
-      // Reset the drag flag after a short delay to prevent click events
       if (hasMoved) {
         setTimeout(() => {
           justDraggedRef.current = false;
@@ -593,23 +568,27 @@ function FieldOverlay({ field, pdfWidth, pdfHeight, onChange, onDelete, onReques
     window.addEventListener("mouseup", onUp);
   };
 
-  // RESIZE (bottom-right corner)
   const onMouseDownResize = (e) => {
     e.stopPropagation();
     e.preventDefault();
     setResizing(true);
-    setIsHovered(false); // Hide border while resizing
+    setIsHovered(false);
     const startX = e.clientX;
     const startY = e.clientY;
-    const startWidth = posRef.current.widthPct * pdfWidth;
-    const startHeight = posRef.current.heightPct * pdfHeight;
+    const startWidthPx = posRef.current.widthPct * pdfWidth;
+    const startHeightPx = posRef.current.heightPct * pdfHeight;
+
+    const parentEl = wrapperRef.current?.parentElement;
+    if (!parentEl) return;
+    const parentRect = parentEl.getBoundingClientRect();
+    const scaleX = pdfWidth / parentRect.width;
+    const scaleY = pdfHeight / parentRect.height;
 
     const onMove = (mv) => {
-      const dx = mv.clientX - startX;
-      const dy = mv.clientY - startY;
-      let newWpx = Math.max(20, startWidth + dx);
-      let newHpx = Math.max(12, startHeight + dy);
-      // clamp right/bottom
+      const dx = (mv.clientX - startX) * scaleX;
+      const dy = (mv.clientY - startY) * scaleY;
+      let newWpx = Math.max(20, startWidthPx + dx);
+      let newHpx = Math.max(12, startHeightPx + dy);
       newWpx = Math.min(newWpx, pdfWidth - posRef.current.leftPct * pdfWidth);
       newHpx = Math.min(newHpx, pdfHeight - posRef.current.topPct * pdfHeight);
       const newWPct = newWpx / pdfWidth;
@@ -629,10 +608,8 @@ function FieldOverlay({ field, pdfWidth, pdfHeight, onChange, onDelete, onReques
     window.addEventListener("mouseup", onUp);
   };
 
-  // input handlers for text/date
   const onValueChange = (v) => onChange({ value: v });
 
-  // Show border and background only when hovered and not dragging
   const showBorder = isHovered && !dragging;
 
   const styleOuter = {
