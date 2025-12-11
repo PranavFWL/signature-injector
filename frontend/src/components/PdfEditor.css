@@ -1,0 +1,511 @@
+/* ============================================
+   PDF Editor - Modern Professional Styling
+   ============================================ */
+
+/* Container */
+.pdf-editor-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+}
+
+/* ============================================
+   HEADER
+   ============================================ */
+
+.pdf-editor-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  z-index: 1000;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2rem;
+  height: 70px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.app-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+  letter-spacing: -0.5px;
+}
+
+.file-upload-compact {
+  display: flex;
+  align-items: center;
+}
+
+.upload-btn-small {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.2rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+}
+
+.upload-btn-small:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.upload-btn-small:active {
+  transform: translateY(0);
+}
+
+.header-right {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.tool-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.75rem 1rem;
+  background: white;
+  color: #4a5568;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-width: 80px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tool-btn svg {
+  transition: all 0.3s ease;
+}
+
+.tool-btn:hover {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-color: transparent;
+  transform: translateY(-3px);
+  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.35);
+}
+
+.tool-btn:active {
+  transform: translateY(-1px);
+}
+
+/* ============================================
+   MAIN CONTENT AREA
+   ============================================ */
+
+.pdf-editor-main {
+  flex: 1;
+  margin-top: 70px;
+  margin-bottom: 80px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Custom Scrollbar */
+.pdf-editor-main::-webkit-scrollbar {
+  width: 12px;
+}
+
+.pdf-editor-main::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.pdf-editor-main::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.pdf-editor-main::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
+  background-clip: content-box;
+}
+
+/* ============================================
+   UPLOAD ZONE (CENTER OF SCREEN)
+   ============================================ */
+
+.upload-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 150px);
+  padding: 2rem;
+}
+
+.upload-zone-content {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 24px;
+  padding: 4rem 3rem;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  max-width: 500px;
+  width: 100%;
+  border: 3px dashed #cbd5e0;
+  transition: all 0.4s ease;
+}
+
+.upload-zone.drag-over .upload-zone-content {
+  border-color: #667eea;
+  background: rgba(102, 126, 234, 0.1);
+  transform: scale(1.02);
+  box-shadow: 0 25px 70px rgba(102, 126, 234, 0.3);
+}
+
+.upload-icon {
+  color: #667eea;
+  margin-bottom: 1.5rem;
+  animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.upload-title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #2d3748;
+  margin: 0 0 0.75rem 0;
+  letter-spacing: -0.5px;
+}
+
+.upload-description {
+  font-size: 1rem;
+  color: #718096;
+  margin: 0 0 2rem 0;
+  line-height: 1.6;
+}
+
+.upload-btn-main {
+  display: inline-block;
+  padding: 1rem 2.5rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+}
+
+.upload-btn-main:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 15px 40px rgba(102, 126, 234, 0.5);
+}
+
+.upload-btn-main:active {
+  transform: translateY(-1px);
+}
+
+/* ============================================
+   PDF PAGES CONTAINER
+   ============================================ */
+
+.pdf-pages-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem 1rem;
+  gap: 2rem;
+}
+
+.pdf-page-wrapper {
+  position: relative;
+  background: white;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.pdf-page-wrapper:hover {
+  box-shadow: 0 15px 50px rgba(0, 0, 0, 0.2);
+  transform: translateY(-2px);
+}
+
+.pdf-page-wrapper canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* ============================================
+   FOOTER
+   ============================================ */
+
+.pdf-editor-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
+  z-index: 1000;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.footer-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.download-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 2.5rem;
+  background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 8px 25px rgba(72, 187, 120, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.download-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 35px rgba(72, 187, 120, 0.5);
+  background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
+}
+
+.download-btn:active {
+  transform: translateY(-1px);
+}
+
+.download-btn svg {
+  animation: bounce 2s ease-in-out infinite;
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+/* ============================================
+   FIELD OVERLAY IMPROVEMENTS
+   ============================================ */
+
+.field-overlay {
+  position: absolute;
+  border: 2px dashed #667eea;
+  background: rgba(255, 255, 255, 0.95);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  z-index: 20;
+  padding: 4px;
+  border-radius: 6px;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.2);
+  transition: all 0.2s ease;
+}
+
+.field-overlay:hover {
+  border-color: #764ba2;
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
+  transform: scale(1.02);
+}
+
+/* ============================================
+   RESPONSIVE DESIGN
+   ============================================ */
+
+@media (max-width: 1024px) {
+  .header-content {
+    padding: 0 1rem;
+  }
+
+  .tool-btn {
+    min-width: 70px;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.7rem;
+  }
+
+  .app-title {
+    font-size: 1.2rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .header-content {
+    flex-direction: column;
+    height: auto;
+    padding: 1rem;
+    gap: 1rem;
+  }
+
+  .header-left,
+  .header-right {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .header-right {
+    flex-wrap: wrap;
+  }
+
+  .pdf-editor-main {
+    margin-top: 140px;
+  }
+
+  .tool-btn {
+    flex: 1;
+    min-width: 60px;
+    font-size: 0.65rem;
+    padding: 0.5rem;
+  }
+
+  .tool-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .upload-zone-content {
+    padding: 2.5rem 1.5rem;
+  }
+
+  .upload-title {
+    font-size: 1.5rem;
+  }
+
+  .upload-description {
+    font-size: 0.9rem;
+  }
+
+  .download-btn {
+    padding: 0.875rem 1.5rem;
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-title {
+    font-size: 1rem;
+  }
+
+  .tool-btn {
+    gap: 0.2rem;
+    font-size: 0.6rem;
+  }
+
+  .upload-btn-main {
+    padding: 0.875rem 2rem;
+    font-size: 1rem;
+  }
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pdf-page-wrapper {
+  animation: fadeIn 0.5s ease-out;
+}
+
+.tool-btn,
+.download-btn,
+.upload-btn-main,
+.upload-btn-small {
+  position: relative;
+  overflow: hidden;
+}
+
+.tool-btn::before,
+.download-btn::before,
+.upload-btn-main::before,
+.upload-btn-small::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  transform: translate(-50%, -50%);
+  transition: width 0.6s, height 0.6s;
+}
+
+.tool-btn:active::before,
+.download-btn:active::before,
+.upload-btn-main:active::before,
+.upload-btn-small:active::before {
+  width: 300px;
+  height: 300px;
+}

@@ -1,11 +1,8 @@
-import PdfViewer from "./PdfViewer";
+import PdfEditor from "./components/PdfEditor";
 
 function App() {
   return (
-    <div>
-      <h2 style={{ textAlign: "center" }}>PDF Rendering Test</h2>
-      <PdfViewer />
-    </div>
+    <PdfEditor />
   );
 }
 
