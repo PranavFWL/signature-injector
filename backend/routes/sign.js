@@ -61,6 +61,9 @@ router.post("/sign-pdf", async (req, res) => {
         const pages = pdfDoc.getPages();
 
         // -------------- 4) Process fields ---------------------------
+        console.log("========== Processing Fields ==========");
+        console.log(`Total fields: ${fields.length}`);
+
         for (const f of fields) {
           try {
             // safety checks
@@ -70,14 +73,22 @@ router.post("/sign-pdf", async (req, res) => {
             const page = pages[f.pageIndex];
             const { width: pageWidth, height: pageHeight } = page.getSize();
 
+            console.log(`\nField ${f.id} (${f.type}):`);
+            console.log(`  Page dimensions: ${pageWidth} x ${pageHeight} points`);
+            console.log(`  Field percentages: left=${f.leftPct}, top=${f.topPct}, width=${f.widthPct}, height=${f.heightPct}`);
+
             // absolute box on PDF points
             const fieldW = pageWidth * (f.widthPct || 0);
             const fieldH = pageHeight * (f.heightPct || 0);
             const fieldLeft = pageWidth * (f.leftPct || 0);
             const fieldTop = pageHeight * (f.topPct || 0); // top in CSS coords
 
+            console.log(`  Absolute coords (PDF points): left=${fieldLeft}, top=${fieldTop}, width=${fieldW}, height=${fieldH}`);
+
             // convert top-left (CSS) into PDF bottom-left origin
             const fieldBottomY = pageHeight - (fieldTop + fieldH);
+
+            console.log(`  PDF bottom-origin Y: ${fieldBottomY}`);
 
             // --- IMAGE or SIGNATURE (contain, preserve aspect) ---
             if (f.type === "signature" || f.type === "image") {
@@ -104,11 +115,17 @@ router.post("/sign-pdf", async (req, res) => {
               const imgW = embeddedImage.width;
               const imgH = embeddedImage.height;
 
-              const scale = Math.min(fieldW / imgW, fieldH / imgH);
+              // Frontend has 8px total padding (4+4) at scale 1.5 = 5.33 PDF points
+              const paddingPoints = 5.33;
+              const availableW = fieldW - (paddingPoints * 2);
+              const availableH = fieldH - (paddingPoints * 2);
+
+              const scale = Math.min(availableW / imgW, availableH / imgH);
               const drawW = imgW * scale;
               const drawH = imgH * scale;
-              const drawX = fieldLeft + (fieldW - drawW) / 2;
-              const drawY = fieldBottomY + (fieldH - drawH) / 2;
+              // Center within the padded area
+              const drawX = fieldLeft + paddingPoints + (availableW - drawW) / 2;
+              const drawY = fieldBottomY + paddingPoints + (availableH - drawH) / 2;
 
               page.drawImage(embeddedImage, {
                 x: drawX,
@@ -118,42 +135,45 @@ router.post("/sign-pdf", async (req, res) => {
               });
 
               console.log(`Drew ${f.type} '${f.id}' on page ${f.pageIndex} at`, {
-                drawX, drawY, drawW, drawH,
+                drawX, drawY, drawW, drawH, fieldLeft, fieldTop, fieldW, fieldH,
               });
 
             // --- TEXT ---
             } else if (f.type === "text") {
               const text = (typeof f.value === "string" ? f.value : "") || "";
 
-              // start with a max font size that's reasonable relative to the box height
-              const maxFontSize = Math.min(24, fieldH * 0.8); // never huge
+              // Frontend has 8px total padding (4+4) at scale 1.5 = 5.33 PDF points
+              const paddingPoints = 5.33;
+
+              // Default input font is ~13-14px at scale 1.5 = ~9-10 PDF points
+              const defaultFontSize = 10;
+              const maxFontSize = Math.min(defaultFontSize, fieldH * 0.6);
               let fontSize = maxFontSize;
 
-              // measure and shrink fontSize until it fits horizontally (simple loop)
+              // measure and shrink fontSize until it fits horizontally
               let textWidth = helveticaFont.widthOfTextAtSize(text, fontSize);
-              if (textWidth > fieldW - 6) { // small padding
-                // reduce font until it fits, but don't go below 6
-                while (fontSize > 6 && helveticaFont.widthOfTextAtSize(text, fontSize) > fieldW - 6) {
-                  fontSize -= 1;
-                }
+              const availableWidth = fieldW - (paddingPoints * 2);
+
+              while (fontSize > 6 && textWidth > availableWidth) {
+                fontSize -= 0.5;
                 textWidth = helveticaFont.widthOfTextAtSize(text, fontSize);
               }
 
-              // vertical centering
-              const textHeight = fontSize; // approx
-              const drawX = fieldLeft + (fieldW - textWidth) / 2;
-              const drawY = fieldBottomY + (fieldH - textHeight) / 2;
+              // Left-aligned with padding (matching frontend input behavior)
+              const drawX = fieldLeft + paddingPoints;
+              // Vertical centering - account for baseline position
+              const drawY = fieldBottomY + (fieldH / 2) - (fontSize / 3);
 
               page.drawText(text, {
                 x: drawX,
                 y: drawY,
                 size: fontSize,
                 font: helveticaFont,
-                maxWidth: fieldW - 6,
+                maxWidth: availableWidth,
               });
 
               console.log(`Drew text '${f.id}' on page ${f.pageIndex} at`, {
-                drawX, drawY, fontSize, textWidth,
+                drawX, drawY, fontSize, textWidth, fieldLeft, fieldTop, fieldW, fieldH,
               });
 
             // --- DATE ---
@@ -170,47 +190,58 @@ router.post("/sign-pdf", async (req, res) => {
                 dateStr = `${yyyy}-${mm}-${dd}`;
               }
 
-              const maxFontSize = Math.min(18, fieldH * 0.7);
+              // Frontend has 8px total padding (4+4) at scale 1.5 = 5.33 PDF points
+              const paddingPoints = 5.33;
+
+              // Default input font is ~13-14px at scale 1.5 = ~9-10 PDF points
+              const defaultFontSize = 10;
+              const maxFontSize = Math.min(defaultFontSize, fieldH * 0.6);
               let fontSize = maxFontSize;
               let textWidth = helveticaFont.widthOfTextAtSize(dateStr, fontSize);
-              while (fontSize > 6 && textWidth > fieldW - 6) {
-                fontSize -= 1;
+              const availableWidth = fieldW - (paddingPoints * 2);
+
+              while (fontSize > 6 && textWidth > availableWidth) {
+                fontSize -= 0.5;
                 textWidth = helveticaFont.widthOfTextAtSize(dateStr, fontSize);
               }
 
-              const textHeight = fontSize;
-              const drawX = fieldLeft + 4; // left aligned with small padding
-              const drawY = fieldBottomY + (fieldH - textHeight) / 2;
+              // Left-aligned with padding
+              const drawX = fieldLeft + paddingPoints;
+              // Vertical centering - account for baseline position
+              const drawY = fieldBottomY + (fieldH / 2) - (fontSize / 3);
 
               page.drawText(dateStr, {
                 x: drawX,
                 y: drawY,
                 size: fontSize,
                 font: helveticaFont,
-                maxWidth: fieldW - 6,
+                maxWidth: availableWidth,
               });
 
-              console.log(`Drew date '${f.id}' on page ${f.pageIndex} at`, { drawX, drawY, fontSize });
+              console.log(`Drew date '${f.id}' on page ${f.pageIndex} at`, { drawX, drawY, fontSize, fieldLeft, fieldTop, fieldW, fieldH });
 
             // --- RADIO ---
             } else if (f.type === "radio") {
-              // Draw a circle centered in the field box. If f.value is truthy, fill a smaller dot.
-              const cx = fieldLeft + fieldW / 2;
-              const cy = fieldBottomY + fieldH / 2;
-              const outerR = Math.min(fieldW, fieldH) * 0.4; // radius relative to box
-              const innerR = outerR * 0.55;
+              // Draw a circle and label. If f.selected is true, fill the inner circle.
+              const paddingPoints = 5.33;
 
-              // pdf-lib doesn't have direct circle primitive; use drawEllipse
+              // Circle size: 20px in frontend / 1.5 = 13.33 points diameter
+              const circleR = 6.67; // radius
+              const cx = fieldLeft + paddingPoints + circleR; // position circle on left with padding
+              const cy = fieldBottomY + fieldH / 2;
+              const innerR = circleR * 0.6;
+
+              // Draw outer circle
               page.drawEllipse({
                 x: cx,
                 y: cy,
-                xScale: outerR,
-                yScale: outerR,
-                borderWidth: 1,
+                xScale: circleR,
+                yScale: circleR,
+                borderWidth: 1.33, // 2px / 1.5 = 1.33 points
               });
 
-              // if value indicates checked (truthy string "checked" or boolean true)
-              if (f.value) {
+              // If selected, fill inner circle
+              if (f.selected) {
                 page.drawEllipse({
                   x: cx,
                   y: cy,
@@ -222,7 +253,37 @@ router.post("/sign-pdf", async (req, res) => {
                 });
               }
 
-              console.log(`Drew radio '${f.id}' on page ${f.pageIndex} at`, { cx, cy, outerR, innerR });
+              // Draw label text next to the circle
+              if (f.label) {
+                const labelText = f.label || "Option";
+                // Frontend font is 0.9rem = ~12px / 1.5 = ~8 points
+                const defaultFontSize = 8;
+                const maxFontSize = Math.min(defaultFontSize, fieldH * 0.6);
+                let fontSize = maxFontSize;
+
+                // Position label to the right of circle with 8px gap = 5.33 points
+                const labelX = cx + circleR + 5.33;
+                const availableWidth = fieldW - (labelX - fieldLeft) - paddingPoints;
+
+                let textWidth = helveticaFont.widthOfTextAtSize(labelText, fontSize);
+                while (fontSize > 6 && textWidth > availableWidth) {
+                  fontSize -= 0.5;
+                  textWidth = helveticaFont.widthOfTextAtSize(labelText, fontSize);
+                }
+
+                // Vertically center with circle
+                const labelY = cy - fontSize / 3;
+
+                page.drawText(labelText, {
+                  x: labelX,
+                  y: labelY,
+                  size: fontSize,
+                  font: helveticaFont,
+                  maxWidth: availableWidth,
+                });
+              }
+
+              console.log(`Drew radio '${f.id}' on page ${f.pageIndex} at`, { cx, cy, circleR, innerR, selected: f.selected });
 
             } else {
               console.log("Unknown field.type (skipping):", f.type, f.id);
@@ -265,10 +326,15 @@ router.post("/sign-pdf", async (req, res) => {
             console.error("Failed to write audit record:", auditErr);
           }
 
-          // -------------- 9) Respond with signed PDF id + URL -----------
+          // -------------- 9) Respond with signed PDF as base64 -----------
+          const pdfBase64 = Buffer.from(signedPdfBytes).toString("base64");
           const signedUrl = `/file/${signedPdfId}`; // ensure your server has this route
           console.log("Signed PDF saved with ID:", signedPdfId.toString());
-          return res.json({ signedPdfId: signedPdfId.toString(), url: signedUrl });
+          return res.json({
+            signedPdfId: signedPdfId.toString(),
+            url: signedUrl,
+            pdf: pdfBase64  // Send base64 PDF for direct download
+          });
         });
 
       } catch (err) {
