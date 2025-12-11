@@ -158,15 +158,13 @@ export default function PdfViewer() {
       return;
     }
 
-    if (!data.signedPdfId) {
-      alert("Backend did not return signedPdfId");
+    if (!data.pdf) {
+      alert("Backend did not return PDF");
       return;
     }
 
-    const fileUrl = `https://signature-injector-4.onrender.com/file/${data.signedPdfId}`;
-
     const a = document.createElement("a");
-    a.href = fileUrl;
+    a.href = "data:application/pdf;base64," + data.pdf;
     a.download = "signed.pdf";
     a.click();
 
