@@ -4,7 +4,8 @@
       "Bash(npm start)",
       "Bash(dir /b \"c:\\Users\\Dell\\Desktop\\signature-injector\")",
       "Bash(dir /b \"c:\\Users\\Dell\\Desktop\\signature-injector\\backend\\routes\")",
-      "Bash(dir /b \"c:\\Users\\Dell\\Desktop\\signature-injector\\backend\")"
+      "Bash(dir /b \"c:\\Users\\Dell\\Desktop\\signature-injector\\backend\")",
+      "Bash(test:*)"
     ]
   }
 }
