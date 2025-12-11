@@ -79,7 +79,7 @@ export default function PdfViewer() {
     try {
       const fd = new FormData();
       fd.append("file", new Blob([arrayBuffer], { type: "application/pdf" }), file.name);
-      const res = await fetch("http://localhost:5000/upload-pdf", { method: "POST", body: fd });
+      const res = await fetch("https://signature-injector-1.onrender.com/sign-pdf", { method: "POST", body: fd });
       const data = await res.json();
       console.log("upload response:", data);
       if (!res.ok) {
@@ -156,7 +156,7 @@ export default function PdfViewer() {
   if (!pdfId) return alert("Upload PDF first");
 
   try {
-    const res = await fetch("http://localhost:5000/sign-pdf", {
+    const res = await fetch("https://signature-injector-1.onrender.com/sign-pdf", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pdfId, fields }),
@@ -178,7 +178,7 @@ export default function PdfViewer() {
     // ----------------------------
     // DOWNLOAD SIGNED PDF FROM GRIDFS
     // ----------------------------
-    const fileUrl = `http://localhost:5000/file/${data.signedPdfId}`;
+    const fileUrl = `https://signature-injector-1.onrender.com/file/${data.signedPdfId}`;
 
     const a = document.createElement("a");
     a.href = fileUrl;

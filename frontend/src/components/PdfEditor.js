@@ -82,7 +82,7 @@ export default function PdfEditor() {
     try {
       const fd = new FormData();
       fd.append("file", new Blob([arrayBuffer], { type: "application/pdf" }), file.name);
-      const res = await fetch("http://localhost:5000/upload-pdf", { method: "POST", body: fd });
+      const res = await fetch("https://signature-injector-1.onrender.com/upload-pdf", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) {
         alert("Upload failed. Check backend logs.");
@@ -330,7 +330,7 @@ export default function PdfEditor() {
   const handleSign = async () => {
     if (!pdfId) return alert("Upload PDF to server first.");
     try {
-      const res = await fetch("http://localhost:5000/sign-pdf", {
+      const res = await fetch("https://signature-injector-1.onrender.com/sign-pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pdfId, fields }),
