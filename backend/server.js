@@ -16,6 +16,7 @@ mongoose
 const app = express();
 app.use(cors({
   origin: [
+    "https://signature-injector-blue.vercel.app",
     "https://signature-injector-henna.vercel.app",
     "http://localhost:3000"
   ],
