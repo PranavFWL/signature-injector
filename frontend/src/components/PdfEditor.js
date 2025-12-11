@@ -316,8 +316,14 @@ export default function PdfEditor() {
       const data = await res.json();
       if (!res.ok) return alert("Signing failed. Check backend logs.");
 
+      if (!data.signedPdfId) {
+        return alert("Backend did not return signedPdfId");
+      }
+
+      const fileUrl = `https://signature-injector-4.onrender.com/file/${data.signedPdfId}`;
+
       const a = document.createElement("a");
-      a.href = "data:application/pdf;base64," + data.pdf;
+      a.href = fileUrl;
       a.download = "signed.pdf";
       a.click();
     } catch (err) {
