@@ -159,14 +159,41 @@ export default function PdfEditor() {
     const meta = pagesMeta[pageIndex];
     if (!meta) return;
 
-    const widthPct = 0.25;
-    const heightPct = 0.08;
+    // Optimize size based on field type
+    let widthPct, heightPct;
+    switch (toolType) {
+      case "text":
+        widthPct = 0.20;
+        heightPct = 0.04;
+        break;
+      case "date":
+        widthPct = 0.15;
+        heightPct = 0.04;
+        break;
+      case "radio":
+        widthPct = 0.15;
+        heightPct = 0.04;
+        break;
+      case "signature":
+        widthPct = 0.25;
+        heightPct = 0.08;
+        break;
+      case "image":
+        widthPct = 0.20;
+        heightPct = 0.15;
+        break;
+      default:
+        widthPct = 0.20;
+        heightPct = 0.05;
+    }
 
     // Place at center of the page
     const leftPct = (1 - widthPct) / 2;
     const topPct = (1 - heightPct) / 2;
 
     const id = Math.random().toString(36).slice(2, 9);
+
+    // For radio buttons, create with additional properties
     const newField = {
       id,
       type: toolType,
@@ -176,6 +203,11 @@ export default function PdfEditor() {
       widthPct,
       heightPct,
       value: "",
+      ...(toolType === "radio" && {
+        label: "Option",
+        groupId: id, // Each radio starts as its own group
+        selected: false
+      })
     };
 
     setFields((p) => [...p, newField]);
@@ -202,8 +234,34 @@ export default function PdfEditor() {
     // convert to page space (we used vp.width/height as CSS)
     const leftPct = xPx / meta.width;
     const topPct = yPx / meta.height;
-    const widthPct = 0.25;
-    const heightPct = 0.08;
+
+    // Optimize size based on field type
+    let widthPct, heightPct;
+    switch (tool) {
+      case "text":
+        widthPct = 0.20;
+        heightPct = 0.04;
+        break;
+      case "date":
+        widthPct = 0.15;
+        heightPct = 0.04;
+        break;
+      case "radio":
+        widthPct = 0.15;
+        heightPct = 0.04;
+        break;
+      case "signature":
+        widthPct = 0.25;
+        heightPct = 0.08;
+        break;
+      case "image":
+        widthPct = 0.20;
+        heightPct = 0.15;
+        break;
+      default:
+        widthPct = 0.20;
+        heightPct = 0.05;
+    }
 
     const id = Math.random().toString(36).slice(2, 9);
     const newField = {
@@ -215,6 +273,11 @@ export default function PdfEditor() {
       widthPct,
       heightPct,
       value: "",
+      ...(tool === "radio" && {
+        label: "Option",
+        groupId: id,
+        selected: false
+      })
     };
 
     setFields((p) => [...p, newField]);
@@ -236,7 +299,31 @@ export default function PdfEditor() {
   };
 
   const handleFieldChange = (id, patch) => {
-    setFields((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+    setFields((prev) => {
+      // Special handling for radio buttons
+      if (patch.hasOwnProperty('selected')) {
+        const currentField = prev.find((f) => f.id === id);
+
+        if (currentField && currentField.type === 'radio' && patch.selected === true) {
+          // When selecting a radio, unselect all others in the same group
+          return prev.map((f) => {
+            if (f.id === id) {
+              return { ...f, ...patch };
+            } else if (f.type === 'radio' && f.groupId === currentField.groupId && f.id !== id) {
+              return { ...f, selected: false };
+            }
+            return f;
+          });
+        }
+      }
+
+      // Default behavior for all other fields
+      return prev.map((f) => (f.id === id ? { ...f, ...patch } : f));
+    });
+  };
+
+  const handleFieldDelete = (id) => {
+    setFields((prev) => prev.filter((f) => f.id !== id));
   };
 
   // --- sign and download ---
@@ -382,6 +469,7 @@ export default function PdfEditor() {
                       pdfWidth={meta.width}
                       pdfHeight={meta.height}
                       onChange={(patch) => handleFieldChange(f.id, patch)}
+                      onDelete={() => handleFieldDelete(f.id)}
                       onRequestOpenSignature={(id) => {
                         setSignatureTargetId(id);
                         setShowSignaturePad(true);
@@ -425,11 +513,12 @@ export default function PdfEditor() {
 }
 
 // ---------------- FieldOverlay ----------------
-function FieldOverlay({ field, pdfWidth, pdfHeight, onChange, onRequestOpenSignature }) {
+function FieldOverlay({ field, pdfWidth, pdfHeight, onChange, onDelete, onRequestOpenSignature }) {
   // convert pct <-> px via pdfWidth/pdfHeight
   const wrapperRef = useRef(null);
   const [dragging, setDragging] = useState(false);
   const [resizing, setResizing] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
   // local temp pos to avoid excessive re-renders while dragging
   const posRef = useRef({ leftPct: field.leftPct, topPct: field.topPct, widthPct: field.widthPct, heightPct: field.heightPct });
@@ -505,7 +594,9 @@ function FieldOverlay({ field, pdfWidth, pdfHeight, onChange, onRequestOpenSigna
   // RESIZE (bottom-right corner)
   const onMouseDownResize = (e) => {
     e.stopPropagation();
+    e.preventDefault();
     setResizing(true);
+    setIsHovered(false); // Hide border while resizing
     const startX = e.clientX;
     const startY = e.clientY;
     const startWidth = posRef.current.widthPct * pdfWidth;
@@ -539,14 +630,17 @@ function FieldOverlay({ field, pdfWidth, pdfHeight, onChange, onRequestOpenSigna
   // input handlers for text/date
   const onValueChange = (v) => onChange({ value: v });
 
+  // Show border and background only when hovered and not dragging
+  const showBorder = isHovered && !dragging;
+
   const styleOuter = {
     position: "absolute",
     left: leftPx + "px",
     top: topPx + "px",
     width: widthPx + "px",
     height: heightPx + "px",
-    border: "2px dashed #667eea",
-    background: "rgba(255,255,255,0.95)",
+    border: showBorder ? "2px dashed #667eea" : "2px dashed transparent",
+    background: showBorder ? "rgba(255,255,255,0.95)" : "transparent",
     boxSizing: "border-box",
     display: "flex",
     alignItems: "center",
@@ -555,7 +649,7 @@ function FieldOverlay({ field, pdfWidth, pdfHeight, onChange, onRequestOpenSigna
     zIndex: 20,
     padding: 4,
     borderRadius: "6px",
-    boxShadow: "0 4px 15px rgba(102, 126, 234, 0.2)",
+    boxShadow: showBorder ? "0 4px 15px rgba(102, 126, 234, 0.2)" : "none",
     transition: "all 0.2s ease",
   };
 
@@ -580,7 +674,51 @@ function FieldOverlay({ field, pdfWidth, pdfHeight, onChange, onRequestOpenSigna
       ref={wrapperRef}
       style={styleOuter}
       onMouseDown={handleWrapperMouseDown}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
+      {/* Delete button - only show when hovered and not dragging */}
+      {showBorder && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{
+            position: "absolute",
+            top: -10,
+            right: -10,
+            width: 24,
+            height: 24,
+            borderRadius: "50%",
+            background: "linear-gradient(135deg, #fc8181 0%, #f56565 100%)",
+            color: "white",
+            border: "2px solid white",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+            fontSize: "14px",
+            fontWeight: "bold",
+            zIndex: 50,
+            boxShadow: "0 2px 8px rgba(0, 0, 0, 0.2)",
+            transition: "all 0.2s ease",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = "scale(1.1)";
+            e.currentTarget.style.boxShadow = "0 4px 12px rgba(245, 101, 101, 0.4)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = "scale(1)";
+            e.currentTarget.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.2)";
+          }}
+          title="Delete field"
+        >
+          ×
+        </button>
+      )}
+
       {/* content */}
       <div style={{ position: "relative", zIndex: 25, width: "100%", padding: 4, pointerEvents: "auto" }}>
         {field.type === "text" && (
@@ -588,6 +726,7 @@ function FieldOverlay({ field, pdfWidth, pdfHeight, onChange, onRequestOpenSigna
             value={field.value || ""}
             onChange={(e) => onValueChange(e.target.value)}
             onMouseDown={(e) => e.stopPropagation()}
+            placeholder="TEXT"
             style={{ width: "100%", border: "none", outline: "none", background: "transparent" }}
           />
         )}
@@ -603,23 +742,66 @@ function FieldOverlay({ field, pdfWidth, pdfHeight, onChange, onRequestOpenSigna
         )}
 
         {field.type === "radio" && (
-          <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-            <label>
-              <input
-                type="radio"
-                checked={field.value === "yes"}
-                onChange={() => onChange({ value: field.value === "yes" ? "" : "yes" })}
-              />
-              Yes
-            </label>
-            <label>
-              <input
-                type="radio"
-                checked={field.value === "no"}
-                onChange={() => onChange({ value: field.value === "no" ? "" : "no" })}
-              />
-              No
-            </label>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              width: "100%",
+              padding: "4px 8px"
+            }}
+          >
+            {/* Radio circle */}
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                // Toggle selection for this radio and unselect others in group
+                const newSelected = !field.selected;
+                onChange({ selected: newSelected });
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: "50%",
+                border: "2px solid #667eea",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                flexShrink: 0,
+                background: "white"
+              }}
+            >
+              {field.selected && (
+                <div
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: "50%",
+                    background: "#667eea"
+                  }}
+                />
+              )}
+            </div>
+
+            {/* Editable label */}
+            <input
+              type="text"
+              value={field.label || ""}
+              onChange={(e) => onChange({ label: e.target.value })}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                flex: 1,
+                border: "none",
+                outline: "none",
+                background: "transparent",
+                fontSize: "0.9rem",
+                color: "#2d3748"
+              }}
+              placeholder="Option"
+            />
           </div>
         )}
 
@@ -687,30 +869,35 @@ function FieldOverlay({ field, pdfWidth, pdfHeight, onChange, onRequestOpenSigna
         )}
       </div>
 
-      {/* resize handle */}
-      <div
-        onMouseDown={onMouseDownResize}
-        style={{
-          position: "absolute",
-          right: -6,
-          bottom: -6,
-          width: 18,
-          height: 18,
-          cursor: "nwse-resize",
-          zIndex: 40,
-          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-          borderRadius: "50%",
-          border: "2px solid white",
-          boxShadow: "0 2px 8px rgba(0, 0, 0, 0.2)"
-        }}
-        title="Drag corner to resize"
-      />
+      {/* resize handle - only show when hovered and not dragging */}
+      {showBorder && (
+        <div
+          onMouseDown={onMouseDownResize}
+          style={{
+            position: "absolute",
+            right: -6,
+            bottom: -6,
+            width: 18,
+            height: 18,
+            cursor: "nwse-resize",
+            zIndex: 40,
+            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+            borderRadius: "50%",
+            border: "2px solid white",
+            boxShadow: "0 2px 8px rgba(0, 0, 0, 0.2)"
+          }}
+          title="Drag corner to resize"
+        />
+      )}
     </div>
   );
 }
 
 // ---------------- ImageUploader ----------------
 function ImageUploader({ value, onChange }) {
+  // Generate a stable ID for this component instance
+  const inputId = useRef(`img-upload-${Math.random().toString(36).slice(2, 9)}`).current;
+
   const onPick = async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
@@ -718,6 +905,7 @@ function ImageUploader({ value, onChange }) {
     const b64 = bufferToBase64(ab);
     onChange(b64);
   };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", width: "100%" }}>
       {value ? (
@@ -726,7 +914,7 @@ function ImageUploader({ value, onChange }) {
         <span style={{ fontSize: "0.85rem", color: "#718096" }}>No image</span>
       )}
       <label
-        htmlFor={`img-upload-${Math.random()}`}
+        htmlFor={inputId}
         style={{
           padding: "6px 12px",
           background: "#667eea",
@@ -740,7 +928,7 @@ function ImageUploader({ value, onChange }) {
         Choose Image
       </label>
       <input
-        id={`img-upload-${Math.random()}`}
+        id={inputId}
         type="file"
         accept="image/*"
         onChange={onPick}
