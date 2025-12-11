@@ -2,7 +2,7 @@ export async function uploadPdf(file) {
   const form = new FormData();
   form.append("pdf", file);
 
-  const res = await fetch("https://signature-injector-3.onrender.com/upload", {
+  const res = await fetch("https://signature-injector-4.onrender.com/upload", {
     method: "POST",
     body: form,
   });
@@ -11,7 +11,7 @@ export async function uploadPdf(file) {
 }
 
 export async function signPdf(pdfId, fields) {
-  const res = await fetch("https://signature-injector-3.onrender.com/sign-pdf", {
+  const res = await fetch("https://signature-injector-4.onrender.com/sign-pdf", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ pdfId, fields }),
@@ -22,7 +22,7 @@ export async function signPdf(pdfId, fields) {
 }
 
 export async function downloadPdf(id) {
-  const res = await fetch(`https://signature-injector-3.onrender.com/download/${id}`);
+  const res = await fetch(`https://signature-injector-4.onrender.com/download/${id}`);
   const blob = await res.blob();
 
   const link = document.createElement("a");
